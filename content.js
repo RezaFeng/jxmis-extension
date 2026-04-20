@@ -195,13 +195,19 @@
 
     const wrapper = document.createElement("span");
     wrapper.id = WORK_WRAPPER_ID;
-    wrapper.style.cssText = "display:inline-flex;align-items:center;gap:8px;margin-left:8px;";
+    wrapper.style.cssText = [
+      "display:inline-flex",
+      "align-items:center",
+      "gap:8px",
+      "margin-left:8px"
+    ].join(";");
 
     const button = document.createElement("button");
     button.id = WORK_BTN_ID;
     button.type = "button";
     button.textContent = "批量报工";
-    button.className = recalcButton.className || "";
+    button.className = recalcButton.className || "btn btn-info";
+    button.style.marginTop = recalcButton.style.marginTop || "-3%";
     if (!button.className) {
       button.style.cssText = [
         "padding:6px 12px",
@@ -218,7 +224,7 @@
     const status = document.createElement("span");
     status.id = WORK_STATUS_ID;
     status.textContent = "待命";
-    status.style.cssText = "font-size:12px;color:#666;max-width:420px;word-break:break-all;";
+    status.style.cssText = "font-size:12px;color:#666;max-width:420px;word-break:break-all;display:inline-flex;align-items:center;vertical-align:middle;";
 
     button.addEventListener("click", function () {
       if (workRunning) {
