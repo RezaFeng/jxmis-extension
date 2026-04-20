@@ -83,7 +83,7 @@
 
     const status = document.createElement("span");
     status.id = DAILY_STATUS_ID;
-    status.textContent = "待命";
+    status.textContent = "";
     status.style.cssText = [
       "font-size:12px",
       "color:#666",
@@ -184,7 +184,7 @@
       return;
     }
 
-    if (document.getElementById(WORK_WRAPPER_ID)) {
+    if (document.getElementById(WORK_BTN_ID) || document.getElementById(WORK_WRAPPER_ID)) {
       return;
     }
 
@@ -208,6 +208,7 @@
     button.textContent = "批量报工";
     button.className = recalcButton.className || "btn btn-info";
     button.style.marginTop = recalcButton.style.marginTop || "-3%";
+    button.style.marginLeft = "1%";
     if (!button.className) {
       button.style.cssText = [
         "padding:6px 12px",
@@ -223,7 +224,7 @@
 
     const status = document.createElement("span");
     status.id = WORK_STATUS_ID;
-    status.textContent = "待命";
+    status.textContent = "";
     status.style.cssText = "font-size:12px;color:#666;max-width:420px;word-break:break-all;display:inline-flex;align-items:center;vertical-align:middle;";
 
     button.addEventListener("click", function () {
@@ -245,9 +246,9 @@
       );
     });
 
-    wrapper.appendChild(button);
     wrapper.appendChild(status);
-    recalcButton.insertAdjacentElement("afterend", wrapper);
+    recalcButton.insertAdjacentElement("afterend", button);
+    button.insertAdjacentElement("afterend", wrapper);
   }
 
   function setWorkStatus(text, running) {
