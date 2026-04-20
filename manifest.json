@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "jxmis-extension",
+  "version": "1.0.0",
+  "description": "Chrome extension for JXMIS daily approval and batch work automation.",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://jxmis.cyberwing.cn/jxpmo/index/frame*",
+        "https://jxmis.cyberwing.cn/jxpmo/project/ProjectRapportService/dailyApprovalPage*",
+        "https://jxmis.cyberwing.cn/jxpmo/project/WkReportService/id/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "https://jxmis.cyberwing.cn/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "page-batch-approve.js",
+        "page-batch-work.js"
+      ],
+      "matches": [
+        "https://jxmis.cyberwing.cn/*"
+      ]
+    }
+  ]
+}
