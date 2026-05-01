@@ -18,8 +18,15 @@
   const WORK_SOURCE_PAGE = "cw-batch-work-page";
   const WORK_SOURCE_CONTENT = "cw-batch-work-content";
 
+  const WEEKLY_SCRIPT_ID = "cw-weekly-approval-page-script";
+  const WEEKLY_BTN_ID = "cw-weekly-approval-btn";
+  const WEEKLY_STATUS_ID = "cw-weekly-approval-status";
+  const WEEKLY_SOURCE_PAGE = "cw-weekly-approval-page";
+  const WEEKLY_SOURCE_CONTENT = "cw-weekly-approval-content";
+
   let dailyRunning = false;
   let workRunning = false;
+  let weeklyRunning = false;
 
   function injectPageScript(id, fileName) {
     if (document.getElementById(id)) {
@@ -46,6 +53,10 @@
         window.location.href.indexOf("/project/WkReportService/id/") >= 0 ||
         window.location.hash.indexOf("/project/WkReportService/id/") >= 0
     );
+  }
+
+  function isWeeklyApprovalListPage() {
+    return window.location.hash.indexOf("/project/WkReportService/wkreportListPage") >= 0;
   }
 
   function ensureDailyPanel() {
@@ -269,6 +280,137 @@
     }
   }
 
+  function findWeeklyExportButton() {
+    const candidates = Array.from(
+      document.querySelectorAll("button, a, input[type=button], input[type=submit]")
+    );
+
+    return (
+      candidates.find(function (el) {
+        const text = (el.textContent || el.value || "").trim();
+        const onclick = String(el.getAttribute("onclick") || "");
+        return text === "导出" && onclick.indexOf("exportAll") >= 0;
+      }) ||
+      candidates.find(function (el) {
+        const text = (el.textContent || el.value || "").trim();
+        return text === "导出";
+      }) ||
+      null
+    );
+  }
+
+  function ensureWeeklyApprovalPanel() {
+    if (!isWeeklyApprovalListPage()) {
+      return;
+    }
+
+    if (document.getElementById(WEEKLY_BTN_ID)) {
+      return;
+    }
+
+    const exportButton = findWeeklyExportButton();
+    if (!exportButton) {
+      return;
+    }
+
+    const button = document.createElement("button");
+    button.id = WEEKLY_BTN_ID;
+    button.type = "button";
+    button.textContent = "批量审核";
+    button.className = "btn btn-info";
+    button.style.marginTop = exportButton.style.marginTop || "0px";
+    button.style.marginLeft = "8px";
+
+    const status = document.createElement("span");
+    status.id = WEEKLY_STATUS_ID;
+    status.textContent = "";
+    status.style.cssText = [
+      "font-size:12px",
+      "color:#666",
+      "max-width:520px",
+      "word-break:break-all",
+      "display:inline-flex",
+      "align-items:center",
+      "vertical-align:middle",
+      "margin-left:8px"
+    ].join(";");
+
+    button.addEventListener("click", function () {
+      if (weeklyRunning) {
+        return;
+      }
+
+      window.postMessage(
+        {
+          source: WEEKLY_SOURCE_CONTENT,
+          type: "CW_WEEKLY_APPROVAL_START"
+        },
+        "*"
+      );
+    });
+
+    exportButton.insertAdjacentElement("afterend", button);
+    button.insertAdjacentElement("afterend", status);
+  }
+
+  function setWeeklyStatus(text, running) {
+    const status = document.getElementById(WEEKLY_STATUS_ID);
+    const button = document.getElementById(WEEKLY_BTN_ID);
+    if (typeof running === "boolean") {
+      weeklyRunning = running;
+    }
+    if (status) {
+      status.textContent = text;
+      status.style.color = weeklyRunning ? "#0b73f6" : "#666";
+    }
+    if (button) {
+      button.disabled = weeklyRunning;
+      button.style.opacity = weeklyRunning ? "0.7" : "1";
+      button.style.cursor = weeklyRunning ? "not-allowed" : "pointer";
+      button.textContent = weeklyRunning ? "审核中..." : "批量审核";
+    }
+  }
+
+  function tryRefreshWeeklyGrid() {
+    const jq = window.jQuery || window.$;
+    if (!jq) {
+      return false;
+    }
+
+    const selectors = [
+      "#WkReportgrid",
+      "#WkReportGrid",
+      "#wkReportgrid",
+      "#wkReportListGrid",
+      "#WkReportListgrid",
+      "#WkReportServicegrid"
+    ];
+
+    for (let i = 0; i < selectors.length; i += 1) {
+      const table = jq(selectors[i]);
+      if (!table.length) {
+        continue;
+      }
+      const dt = table.data("dataTablesDT");
+      if (dt && dt.ajax && typeof dt.ajax.reload === "function") {
+        dt.ajax.reload(null, false);
+        return true;
+      }
+    }
+
+    const tables = jq("table").toArray();
+    for (let j = 0; j < tables.length; j += 1) {
+      const table = jq(tables[j]);
+      const dt = table.data("dataTablesDT");
+      if (dt && dt.ajax && typeof dt.ajax.reload === "function") {
+        dt.ajax.reload(null, false);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   window.addEventListener("message", function (event) {
     if (event.source !== window) {
       return;
@@ -322,16 +464,57 @@
 
       return;
     }
+
+    if (data.source === WEEKLY_SOURCE_PAGE) {
+      if (data.type === "CW_WEEKLY_APPROVAL_RUNNING") {
+        setWeeklyStatus(data.message || "处理中", true);
+        return;
+      }
+
+      if (data.type === "CW_WEEKLY_APPROVAL_PREVIEW") {
+        setWeeklyStatus(data.message || "待确认", true);
+        return;
+      }
+
+      if (data.type === "CW_WEEKLY_APPROVAL_PROGRESS") {
+        setWeeklyStatus(data.message || "处理中", true);
+        return;
+      }
+
+      if (data.type === "CW_WEEKLY_APPROVAL_DONE") {
+        setWeeklyStatus(data.message || "完成", false);
+        if (data.shouldReload && !tryRefreshWeeklyGrid()) {
+          reloadCurrentPageSoon();
+        }
+        return;
+      }
+
+      if (data.type === "CW_WEEKLY_APPROVAL_ERROR") {
+        setWeeklyStatus(data.message || "失败", false);
+        return;
+      }
+
+      return;
+    }
   });
 
   injectPageScript(DAILY_SCRIPT_ID, "page-batch-approve.js");
   injectPageScript(WORK_SCRIPT_ID, "page-batch-work.js");
+  injectPageScript(WEEKLY_SCRIPT_ID, "page-batch-weekly-approve.js");
   ensureDailyPanel();
   ensureWorkButton();
+  ensureWeeklyApprovalPanel();
+
+  window.addEventListener("hashchange", function () {
+    ensureDailyPanel();
+    ensureWorkButton();
+    ensureWeeklyApprovalPanel();
+  });
 
   const observer = new MutationObserver(function () {
     ensureDailyPanel();
     ensureWorkButton();
+    ensureWeeklyApprovalPanel();
   });
 
   observer.observe(document.documentElement, {

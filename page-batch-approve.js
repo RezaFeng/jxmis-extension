@@ -16,7 +16,7 @@
     achievementComplete: "1",
     achievementQuality: "1",
     approvalComment: "",
-    baseDelayMs: 5000,
+    baseDelayMs: 1000,
     randomDelayMaxMs: 3000
   };
 

@@ -23,7 +23,8 @@
     {
       "resources": [
         "page-batch-approve.js",
-        "page-batch-work.js"
+        "page-batch-work.js",
+        "page-batch-weekly-approve.js"
       ],
       "matches": [
         "https://jxmis.cyberwing.cn/*"
