@@ -16,6 +16,16 @@
   - Fills `WkExecutiongrid`
   - Writes modified rows into DataTables change store
   - Triggers `WkFormJS.saveAll()`
+  - Injects `总结周报`
+  - Reads current project weekly report context
+  - Fetches task details from the current Monday-Sunday week
+  - Streams AI summary into `本周执行情况`
+  - Triggers `WkFormJS.saveAll()` after summary generation
+- AI weekly summary configuration
+  - Click the extension icon to open the popup
+  - Supports OpenAI-compatible `baseUrl`, API key, model selection, and editable system prompt
+  - Fetches models from `{baseUrl}/models`
+  - Streams chat completions from `{baseUrl}/chat/completions`
 - Weekly report approval list page
   - Detects route `#!/project/WkReportService/wkreportListPage`
   - Injects `批量审核`
@@ -27,6 +37,10 @@
 ## Files
 
 - `manifest.json`: extension manifest
+- `background.js`: OpenAI-compatible model list and streaming chat proxy
+- `popup.html`: extension popup for AI weekly summary settings
+- `popup.css`: popup styles
+- `popup.js`: popup storage and model refresh logic
 - `content.js`: injects UI and coordinates page actions
 - `page-batch-approve.js`: batch daily approval logic in page context
 - `page-batch-work.js`: batch work-report fill and save logic in page context
