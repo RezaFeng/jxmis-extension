@@ -966,10 +966,11 @@
     return chunks;
   }
 
-  function createNextExecutionRow(wbs, hours, context) {
+  function createNextExecutionRow(wbs, hours, context, options) {
+    const manualPerson = Boolean(options && options.manualPerson);
     const tentative = isTentativeOwner(wbs);
-    const ownerId = tentative ? "" : String((wbs && wbs.majorPerson) || "").trim();
-    const ownerName = tentative ? "" : String((wbs && (wbs.roleName || wbs.majorPersonName)) || "").trim();
+    const ownerId = tentative || manualPerson ? "" : String((wbs && wbs.majorPerson) || "").trim();
+    const ownerName = tentative || manualPerson ? "" : String((wbs && (wbs.roleName || wbs.majorPersonName)) || "").trim();
     const detailName = String((wbs && wbs.detailName) || "").trim();
     const creator = context.prodPerson || context.projectManager || "";
     const creatorName = context.prodPersonName || context.projectManagerName || "";
@@ -1005,7 +1006,7 @@
       svn: "",
       isNeedDo: "",
       extName: detailName,
-      planDate: tentative ? "" : String(hours),
+      planDate: tentative || manualPerson ? "" : String(hours),
       realTime: "",
       finishRate: "",
       actualHour: "",
@@ -1042,6 +1043,7 @@
       duplicate: 0,
       tentative: 0,
       noPerson: 0,
+      manualPerson: 0,
       zeroAssignable: 0,
       generatedTasks: 0,
       generatedRows: 0
@@ -1130,13 +1132,23 @@
       const person = String((wbs && wbs.majorPerson) || "").trim();
       if (!person) {
         stats.noPerson += 1;
-        if (skippedSamples.length < 5) {
-          skippedSamples.push({
-            reason: "noPerson",
+        generated.push(createNextExecutionRow(wbs, "", context, {
+          manualPerson: true
+        }));
+        dedup.add(key);
+        stats.manualPerson += 1;
+        stats.generatedTasks += 1;
+        stats.generatedRows += 1;
+        if (includedSamples.length < 10) {
+          includedSamples.push({
             detailId: detailId,
             detailName: detailName,
+            owner: "manualPerson",
             roleName: wbs && wbs.roleName,
-            majorPerson: wbs && wbs.majorPerson
+            majorPerson: wbs && wbs.majorPerson,
+            planDate: "",
+            chunks: [""],
+            note: "majorPerson 为空，按手工补人员/工时插入"
           });
         }
         return;
