@@ -14,11 +14,13 @@
   - Detects route `#/jxpmo/project/WkReportService/id/<dynamic-id>?`
   - Injects `批量报工` next to `重新计算`
   - Fills `WkExecutiongrid`
+  - Generates next-week WBS plan rows into `executionNext` before saving
   - Writes modified rows into DataTables change store
   - Triggers `WkFormJS.saveAll()`
   - Injects `总结周报`
   - Reads current project weekly report context
   - Fetches task details from the current Monday-Sunday week
+  - Caches generated daily-task JSON per weekly report; hold `Shift` while clicking `总结周报` to refresh
   - Streams AI summary into `本周执行情况`
   - Triggers `WkFormJS.saveAll()` after summary generation
 - AI weekly summary configuration

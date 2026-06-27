@@ -71,6 +71,37 @@
     return Array.from(new Set(models)).sort();
   }
 
+  function getWeeklySummaryCacheKey(key) {
+    return "weeklySummaryCache:" + String(key || "");
+  }
+
+  async function getWeeklySummaryCache(key) {
+    if (!key) {
+      return null;
+    }
+    const storageKey = getWeeklySummaryCacheKey(key);
+    const data = await storageGet([storageKey]);
+    return (data && data[storageKey]) || null;
+  }
+
+  function storageSet(data) {
+    return new Promise(function (resolve) {
+      chrome.storage.local.set(data, resolve);
+    });
+  }
+
+  async function setWeeklySummaryCache(key, value) {
+    if (!key) {
+      return;
+    }
+    const storageKey = getWeeklySummaryCacheKey(key);
+    await storageSet(
+      Object.assign({}, {
+        [storageKey]: value
+      })
+    );
+  }
+
   function readStreamLine(line, port) {
     const trimmed = line.trim();
     if (!trimmed || !trimmed.startsWith("data:")) {
@@ -204,25 +235,64 @@
   }
 
   chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
-    if (!message || message.type !== "CW_AI_FETCH_MODELS") {
+    if (!message) {
       return false;
     }
 
-    fetchModels()
-      .then(function (models) {
-        sendResponse({
-          ok: true,
-          models: models
+    if (message.type === "CW_AI_FETCH_MODELS") {
+      fetchModels()
+        .then(function (models) {
+          sendResponse({
+            ok: true,
+            models: models
+          });
+        })
+        .catch(function (error) {
+          sendResponse({
+            ok: false,
+            error: error && error.message ? error.message : String(error)
+          });
         });
-      })
-      .catch(function (error) {
-        sendResponse({
-          ok: false,
-          error: error && error.message ? error.message : String(error)
-        });
-      });
 
-    return true;
+      return true;
+    }
+
+    if (message.type === "CW_WEEKLY_SUMMARY_CACHE_GET") {
+      getWeeklySummaryCache(message.key)
+        .then(function (cache) {
+          sendResponse({
+            ok: true,
+            cache: cache
+          });
+        })
+        .catch(function (error) {
+          sendResponse({
+            ok: false,
+            error: error && error.message ? error.message : String(error)
+          });
+        });
+
+      return true;
+    }
+
+    if (message.type === "CW_WEEKLY_SUMMARY_CACHE_SET") {
+      setWeeklySummaryCache(message.key, message.value)
+        .then(function () {
+          sendResponse({
+            ok: true
+          });
+        })
+        .catch(function (error) {
+          sendResponse({
+            ok: false,
+            error: error && error.message ? error.message : String(error)
+          });
+        });
+
+      return true;
+    }
+
+    return false;
   });
 
   chrome.runtime.onConnect.addListener(function (port) {

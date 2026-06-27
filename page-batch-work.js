@@ -13,7 +13,8 @@
 
   const summaryConfig = {
     pageSize: 100,
-    maxPages: 250
+    maxPages: 250,
+    pageConcurrency: 2
   };
 
   function post(type, message, extra) {
@@ -31,8 +32,11 @@
   }
 
   function getWebapp() {
-    const webapp = window.localStorage.getItem("webapp") || "/jxpmo";
-    return webapp === "/" ? "" : webapp;
+    const raw = String(window.localStorage.getItem("webapp") || "/jxpmo").trim();
+    if (!raw || raw === "/") {
+      return "";
+    }
+    return raw.charAt(0) === "/" ? raw.replace(/\/+$/, "") : "/" + raw.replace(/\/+$/, "");
   }
 
   function getBaseUrl() {
@@ -50,15 +54,20 @@
   }
 
   async function fetchJson(url, label) {
-    const response = await fetch(url, {
-      method: "GET",
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/json, text/javascript, */*; q=0.01",
-        "X-Requested-With": "XMLHttpRequest"
-      },
-      cache: "no-store"
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "GET",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json, text/javascript, */*; q=0.01",
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        cache: "no-store"
+      });
+    } catch (error) {
+      throw new Error(label + " failed: " + (error && error.message ? error.message : String(error)) + " url=" + url);
+    }
     await assertOk(response, label);
     return response.json();
   }
@@ -84,7 +93,7 @@
     return "";
   }
 
-  function parseProjectIdFromLocation() {
+  function parseWkIdFromLocation() {
     const text = window.location.href + " " + window.location.hash;
     const match = text.match(/\/WkReportService\/id\/([^/?#\s]+)/);
     return match ? decodeURIComponent(match[1]) : "";
@@ -203,9 +212,9 @@
   }
 
   async function getWeeklyContext() {
-    const wkId = readControlValue(["wkId"]);
-    const locationProjectId = parseProjectIdFromLocation();
-    let projectId = readControlValue(["projectId", "queryProjectId"]) || locationProjectId;
+    const locationWkId = parseWkIdFromLocation();
+    const wkId = readControlValue(["wkId"]) || locationWkId;
+    let projectId = readControlValue(["projectId", "queryProjectId"]);
     let row = null;
 
     if (wkId) {
@@ -239,6 +248,10 @@
       wkId: wkId || String((row && row.wkId) || ""),
       projectId: projectId,
       projectName: readControlValue(["projectName"]) || String((row && row.projectName) || ""),
+      prodPerson: readControlValue(["prodPerson"]) || String((row && row.prodPerson) || ""),
+      prodPersonName: readControlValue(["prodPersonName"]) || String((row && row.prodPersonName) || ""),
+      projectManager: readControlValue(["projectManager"]) || String((row && row.projectManager) || ""),
+      projectManagerName: readControlValue(["projectManagerName"]) || String((row && row.projectManagerName) || ""),
       weekDate: weekDate,
       weekStart: formatDate(range.start),
       weekEnd: formatDate(range.end),
@@ -274,43 +287,97 @@
     );
   }
 
+  function appendWeeklyTaskRows(rows, context, seen, result) {
+    rows.forEach(function (row) {
+      const taskDetail = String((row && row.taskDetail) || "").trim();
+      const dateSource = (row && (row.submissionTime || row.realEndTime || row.createTime)) || "";
+      if (!taskDetail || !dateInRange(dateSource, context.startDate, context.endDate)) {
+        return;
+      }
+
+      const date = formatDate(parseDate(dateSource));
+      const userFullname = String((row && row.userFullname) || "").trim() || "未知人员";
+      const key = userFullname + "\n" + date + "\n" + taskDetail;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      result.push({
+        userFullname: userFullname,
+        date: date,
+        taskDetail: taskDetail
+      });
+    });
+  }
+
+  function pageHasRowsBeforeWeek(rows, context) {
+    return rows.some(function (row) {
+      const dateSource = (row && (row.submissionTime || row.realEndTime || row.createTime)) || "";
+      const date = parseDate(dateSource);
+      return date && date < context.startDate;
+    });
+  }
+
+  function getTaskDetailPageCount(data) {
+    const total = Number((data && (data.recordsFiltered || data.total || data.recordsTotal)) || 0);
+    const pageCount = Number(data && data.pageCount) || (total > 0 ? Math.ceil(total / summaryConfig.pageSize) : 0);
+    return Math.min(pageCount || 1, summaryConfig.maxPages);
+  }
+
   async function fetchWeeklyTaskDetails(context) {
     const seen = new Set();
     const result = [];
-    let page = 1;
 
-    while (page <= summaryConfig.maxPages) {
-      const data = await fetchTaskDetailPage(context.projectId, page);
-      const rows = Array.isArray(data && data.rows) ? data.rows : [];
+    const firstData = await fetchTaskDetailPage(context.projectId, 1);
+    const firstRows = Array.isArray(firstData && firstData.rows) ? firstData.rows : [];
+    appendWeeklyTaskRows(firstRows, context, seen, result);
 
-      rows.forEach(function (row) {
-        const taskDetail = String((row && row.taskDetail) || "").trim();
-        const dateSource = (row && (row.submissionTime || row.realEndTime || row.createTime)) || "";
-        if (!taskDetail || !dateInRange(dateSource, context.startDate, context.endDate)) {
-          return;
-        }
-
-        const date = formatDate(parseDate(dateSource));
-        const userFullname = String((row && row.userFullname) || "").trim() || "未知人员";
-        const key = userFullname + "\n" + date + "\n" + taskDetail;
-        if (seen.has(key)) {
-          return;
-        }
-        seen.add(key);
-        result.push({
-          userFullname: userFullname,
-          date: date,
-          taskDetail: taskDetail
-        });
+    const pageCount = getTaskDetailPageCount(firstData);
+    if (!firstRows.length || pageCount <= 1 || pageHasRowsBeforeWeek(firstRows, context)) {
+      result.sort(function (a, b) {
+        return (a.date + a.userFullname).localeCompare(b.date + b.userFullname, "zh-CN");
       });
+      return result;
+    }
 
-      const total = Number((data && (data.recordsFiltered || data.total || data.recordsTotal)) || 0);
-      const pageCount = Number(data && data.pageCount) || (total > 0 ? Math.ceil(total / summaryConfig.pageSize) : 0);
-      if (!rows.length || (pageCount > 0 && page >= pageCount) || (pageCount === 0 && rows.length < summaryConfig.pageSize)) {
-        break;
+    let nextPage = 2;
+    while (nextPage <= pageCount) {
+      const batch = [];
+      while (nextPage <= pageCount && batch.length < summaryConfig.pageConcurrency) {
+        batch.push(nextPage);
+        nextPage += 1;
       }
 
-      page += 1;
+      post(
+        "CW_WEEKLY_SUMMARY_PROGRESS",
+        "并发拉取日报页 " + batch[0] + "-" + batch[batch.length - 1] + " / " + pageCount
+      );
+
+      const pages = await Promise.all(
+        batch.map(function (page) {
+          return fetchTaskDetailPage(context.projectId, page).then(function (data) {
+            return {
+              page: page,
+              data: data
+            };
+          });
+        })
+      );
+
+      let shouldStop = false;
+      pages.sort(function (a, b) {
+        return a.page - b.page;
+      }).forEach(function (item) {
+        const rows = Array.isArray(item.data && item.data.rows) ? item.data.rows : [];
+        appendWeeklyTaskRows(rows, context, seen, result);
+        if (pageHasRowsBeforeWeek(rows, context)) {
+          shouldStop = true;
+        }
+      });
+
+      if (shouldStop) {
+        break;
+      }
     }
 
     result.sort(function (a, b) {
@@ -331,6 +398,65 @@
       null,
       2
     );
+  }
+
+  function createSummaryCacheKey(context) {
+    if (context.wkId) {
+      return "wk:" + context.wkId;
+    }
+    return [
+      "project",
+      context.projectId,
+      context.weekStart,
+      context.weekEnd
+    ].join(":");
+  }
+
+  function requestContentBridge(type, payload) {
+    return new Promise(function (resolve, reject) {
+      const requestId = String(Date.now()) + "-" + String(Math.random()).slice(2);
+
+      function onMessage(event) {
+        if (event.source !== window) {
+          return;
+        }
+        const data = event.data;
+        if (
+          !data ||
+          data.source !== SOURCE_CONTENT ||
+          data.type !== type + "_RESULT" ||
+          data.requestId !== requestId
+        ) {
+          return;
+        }
+
+        window.removeEventListener("message", onMessage);
+        if (data.ok) {
+          resolve(data);
+        } else {
+          reject(new Error(data.error || "请求扩展缓存失败"));
+        }
+      }
+
+      window.addEventListener("message", onMessage);
+      post(type, "", Object.assign({}, payload || {}, {
+        requestId: requestId
+      }));
+    });
+  }
+
+  async function getSummaryCache(cacheKey) {
+    const response = await requestContentBridge("CW_WEEKLY_SUMMARY_CACHE_GET", {
+      key: cacheKey
+    });
+    return response.cache || null;
+  }
+
+  async function setSummaryCache(cacheKey, value) {
+    await requestContentBridge("CW_WEEKLY_SUMMARY_CACHE_SET", {
+      key: cacheKey,
+      value: value
+    });
   }
 
   function findByLabelText(text) {
@@ -429,13 +555,14 @@
     throw new Error("未找到 WkFormJS.saveAll，无法自动保存周报");
   }
 
-  async function runWeeklySummary() {
+  async function runWeeklySummary(options) {
     if (summaryRunning) {
       post("CW_WEEKLY_SUMMARY_RUNNING", "已有周报总结任务运行中");
       return;
     }
 
     summaryRunning = true;
+    const forceRefresh = Boolean(options && options.forceRefresh);
 
     try {
       post("CW_WEEKLY_SUMMARY_RUNNING", "定位本周执行情况文本框");
@@ -447,18 +574,56 @@
 
       post("CW_WEEKLY_SUMMARY_PROGRESS", "读取当前周报信息");
       const context = await getWeeklyContext();
+      const cacheKey = createSummaryCacheKey(context);
+      let dailyTasks = null;
+      let userPrompt = "";
+      let cache = null;
 
-      post(
-        "CW_WEEKLY_SUMMARY_PROGRESS",
-        "拉取 " + context.weekStart + " 至 " + context.weekEnd + " 的日报"
-      );
-      const dailyTasks = await fetchWeeklyTaskDetails(context);
-      if (!dailyTasks.length) {
-        throw new Error("未找到本周 taskDetail 日报内容");
+      if (!forceRefresh) {
+        cache = await getSummaryCache(cacheKey).catch(function () {
+          return null;
+        });
       }
 
-      const userPrompt = createUserPrompt(context, dailyTasks);
-      post("CW_WEEKLY_SUMMARY_PROGRESS", "请求大模型，总计 " + dailyTasks.length + " 条日报");
+      if (
+        cache &&
+        cache.userPrompt &&
+        cache.weekStart === context.weekStart &&
+        cache.weekEnd === context.weekEnd
+      ) {
+        userPrompt = String(cache.userPrompt);
+        post(
+          "CW_WEEKLY_SUMMARY_PROGRESS",
+          "使用缓存日报数据，共 " + Number(cache.dailyTaskCount || 0) + " 条；按住 Shift 点击可重新抓取"
+        );
+      } else {
+        post(
+          "CW_WEEKLY_SUMMARY_PROGRESS",
+          "拉取 " + context.weekStart + " 至 " + context.weekEnd + " 的日报"
+        );
+        dailyTasks = await fetchWeeklyTaskDetails(context);
+        if (!dailyTasks.length) {
+          throw new Error("未找到本周 taskDetail 日报内容");
+        }
+
+        userPrompt = createUserPrompt(context, dailyTasks);
+        await setSummaryCache(cacheKey, {
+          cacheKey: cacheKey,
+          wkId: context.wkId,
+          projectId: context.projectId,
+          projectName: context.projectName,
+          weekStart: context.weekStart,
+          weekEnd: context.weekEnd,
+          dailyTaskCount: dailyTasks.length,
+          userPrompt: userPrompt,
+          cachedAt: new Date().toISOString()
+        }).catch(function (error) {
+          console.warn("[cw-weekly-summary] cache write failed", error);
+        });
+      }
+
+      const taskCount = dailyTasks ? dailyTasks.length : Number(cache && cache.dailyTaskCount) || 0;
+      post("CW_WEEKLY_SUMMARY_PROGRESS", "请求大模型，总计 " + taskCount + " 条日报");
       const summaryText = await requestAiSummary(userPrompt, targetField);
       if (!String(summaryText || "").trim()) {
         throw new Error("模型返回内容为空");
@@ -476,7 +641,433 @@
     }
   }
 
-  function runBatchWork() {
+  const HOLIDAY_WORKDAY_OVERRIDES = {
+    "2026": {
+      holidays: [
+        "2026-01-01",
+        "2026-01-02",
+        "2026-01-03",
+        "2026-02-15",
+        "2026-02-16",
+        "2026-02-17",
+        "2026-02-18",
+        "2026-02-19",
+        "2026-02-20",
+        "2026-02-21",
+        "2026-02-22",
+        "2026-02-23",
+        "2026-04-04",
+        "2026-04-05",
+        "2026-04-06",
+        "2026-05-01",
+        "2026-05-02",
+        "2026-05-03",
+        "2026-05-04",
+        "2026-05-05",
+        "2026-06-19",
+        "2026-06-20",
+        "2026-06-21",
+        "2026-09-25",
+        "2026-09-26",
+        "2026-09-27",
+        "2026-10-01",
+        "2026-10-02",
+        "2026-10-03",
+        "2026-10-04",
+        "2026-10-05",
+        "2026-10-06",
+        "2026-10-07"
+      ],
+      workdays: [
+        "2026-01-04",
+        "2026-02-14",
+        "2026-02-28",
+        "2026-05-09",
+        "2026-09-20",
+        "2026-10-10"
+      ]
+    }
+  };
+
+  function hasHolidayTable(year) {
+    return Boolean(HOLIDAY_WORKDAY_OVERRIDES[String(year)]);
+  }
+
+  function isChinaWorkday(date) {
+    const key = formatDate(date);
+    const config = HOLIDAY_WORKDAY_OVERRIDES[String(date.getFullYear())];
+    if (config) {
+      if (config.workdays.indexOf(key) >= 0) {
+        return true;
+      }
+      if (config.holidays.indexOf(key) >= 0) {
+        return false;
+      }
+    }
+    const day = date.getDay();
+    return day !== 0 && day !== 6;
+  }
+
+  function getNextWeekInfo(context) {
+    const start = addDays(context.startDate, 7);
+    const end = addDays(start, 6);
+    const workdays = [];
+    let cursor = start;
+    while (cursor <= end) {
+      if (isChinaWorkday(cursor)) {
+        workdays.push(new Date(cursor.getTime()));
+      }
+      cursor = addDays(cursor, 1);
+    }
+    return {
+      start: start,
+      end: end,
+      startText: formatDate(start),
+      endText: formatDate(end),
+      workdays: workdays,
+      hasHolidayTable: hasHolidayTable(start.getFullYear()) && hasHolidayTable(end.getFullYear())
+    };
+  }
+
+  function countWorkdaysInRange(startDate, endDate) {
+    if (!startDate || !endDate || startDate > endDate) {
+      return 0;
+    }
+    let count = 0;
+    let cursor = new Date(startDate.getTime());
+    while (cursor <= endDate) {
+      if (isChinaWorkday(cursor)) {
+        count += 1;
+      }
+      cursor = addDays(cursor, 1);
+    }
+    return count;
+  }
+
+  function intervalsIntersect(startA, endA, startB, endB) {
+    return startA && endA && startB && endB && startA <= endB && endA >= startB;
+  }
+
+  function normalizeRows(data) {
+    if (Array.isArray(data)) {
+      return data;
+    }
+    if (data && Array.isArray(data.rows)) {
+      return data.rows;
+    }
+    if (data && Array.isArray(data.data)) {
+      return data.data;
+    }
+    return [];
+  }
+
+  async function fetchProjectPlanDetails(context) {
+    const params = new URLSearchParams({
+      queryName: "queryVer",
+      filterQuery: "true",
+      queryType: "page",
+      max1: String(context.projectId),
+      planId1: String(context.projectId),
+      draw: "1",
+      page: "1",
+      start: "0",
+      length: "-1",
+      rows: "1073741824"
+    });
+    const data = await fetchJson(
+      getBaseUrl() + "/rest/project/ProjectPlanDetailService/query?" + params.toString(),
+      "fetch WBS plan details"
+    );
+    return normalizeRows(data);
+  }
+
+  async function fetchExistingNextExecutions(wkId) {
+    if (!wkId) {
+      return [];
+    }
+    const params = new URLSearchParams({
+      queryName: "queryReportExtList",
+      filterQuery: "true",
+      queryType: "page",
+      reportId: String(wkId),
+      type: "2",
+      draw: "1",
+      page: "1",
+      start: "0",
+      length: "-1",
+      rows: "1073741824"
+    });
+    const data = await fetchJson(
+      getBaseUrl() + "/rest/project/WkExecutionService/query?" + params.toString(),
+      "fetch next week executions"
+    );
+    return normalizeRows(data);
+  }
+
+  function getDataTableApi($table) {
+    if (!$table || !$table.length) {
+      return null;
+    }
+    return $table.data("dataTablesDT") || null;
+  }
+
+  function findNextExecutionTable($) {
+    const candidates = [];
+    $("table").each(function () {
+      const $table = $(this);
+      const url = String($table.attr("data-url") || "");
+      const id = String($table.attr("id") || "");
+      if (url.indexOf("WkExecutionService/query") >= 0 && url.indexOf("type=2") >= 0) {
+        candidates.push($table);
+        return;
+      }
+      if (/next|ExecutionNext|WkExecutionNext|NextWk|WkNext/i.test(id)) {
+        candidates.push($table);
+      }
+    });
+
+    const fallbackIds = [
+      "WkExecutionNextgrid",
+      "WkExecutionNextGrid",
+      "WkExecutiongridNext",
+      "WkExecutionNext",
+      "executionNextgrid"
+    ];
+    for (let i = 0; i < fallbackIds.length; i += 1) {
+      const $fallback = $("#" + fallbackIds[i]);
+      if ($fallback.length) {
+        candidates.push($fallback);
+      }
+    }
+
+    for (let j = 0; j < candidates.length; j += 1) {
+      if (getDataTableApi(candidates[j])) {
+        return candidates[j];
+      }
+    }
+    return candidates[0] || $();
+  }
+
+  function createDedupKey(row) {
+    return [
+      String((row && row.majorPerson) || ""),
+      String((row && (row.wbsId || row.detailId)) || ""),
+      String((row && (row.extName || row.detailName || row.wbsName)) || "")
+    ].join("|");
+  }
+
+  function toNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  }
+
+  function isTentativeOwner(row) {
+    return String((row && (row.roleName || row.majorPersonName || row.majorPerson)) || "").trim() === "待定";
+  }
+
+  function splitHours(totalHours) {
+    const chunks = [];
+    let remaining = Math.max(0, Math.floor(totalHours));
+    while (remaining > 0) {
+      const chunk = Math.min(24, remaining);
+      chunks.push(chunk);
+      remaining -= chunk;
+    }
+    return chunks;
+  }
+
+  function createNextExecutionRow(wbs, hours, context) {
+    const tentative = isTentativeOwner(wbs);
+    const ownerId = tentative ? "" : String((wbs && wbs.majorPerson) || "").trim();
+    const ownerName = tentative ? "" : String((wbs && (wbs.roleName || wbs.majorPersonName)) || "").trim();
+    const detailName = String((wbs && wbs.detailName) || "").trim();
+    const creator = context.prodPerson || context.projectManager || "";
+    const creatorName = context.prodPersonName || context.projectManagerName || "";
+
+    return {
+      isProjectType: "",
+      isLaskTask: "1",
+      memo: "",
+      confrontId: "",
+      nextWkId: context.wkId,
+      wbsName: detailName,
+      workItemId: String((wbs && wbs.workItemId) || ""),
+      majorPersonName: ownerName,
+      modifyPerson: "",
+      orgId: String((wbs && wbs.orgId) || ""),
+      wageLevelCost: "",
+      taskResouce: "2",
+      modifyTime: "",
+      majorPerson: ownerId,
+      dingTaskId: "",
+      subOrgId: String((wbs && wbs.subOrgId) || ""),
+      taskField: "WBS任务",
+      taskNo: "",
+      extId: "",
+      createPersonName: "",
+      isConfirmPmo: "",
+      finishDesc: "",
+      taskDetails: "",
+      realEndTime: "",
+      processInstanceId: "",
+      wageLevelCosts: "",
+      createPerson: creator,
+      svn: "",
+      isNeedDo: "",
+      extName: detailName,
+      planDate: tentative ? "" : String(hours),
+      realTime: "",
+      finishRate: "",
+      actualHour: "",
+      isState: "",
+      createTime: "",
+      grade: "",
+      actualDate: "",
+      wbsId: String((wbs && wbs.detailId) || ""),
+      wkId: "",
+      planEndTime: String((wbs && wbs.planEndTime) || ""),
+      projectAttribute: "",
+      isConfirmCompletion: "",
+      projectName: context.projectName,
+      projectId: context.projectId,
+      taskId: "",
+      createName: creatorName,
+      wkStatus: "0",
+      _add_: true,
+      _id_: Date.now() + Math.floor(Math.random() * 1000000),
+      _v_checkbox: "",
+      "[object HTMLCollection]": "WBS任务"
+    };
+  }
+
+  function buildNextExecutionRows(wbsRows, existingRows, context, nextWeek) {
+    const dedup = new Set();
+    const usedHoursByPerson = {};
+    const generated = [];
+
+    existingRows.forEach(function (row) {
+      const key = createDedupKey(row);
+      if (key !== "||") {
+        dedup.add(key);
+      }
+      const person = String((row && row.majorPerson) || "");
+      if (person) {
+        usedHoursByPerson[person] = (usedHoursByPerson[person] || 0) + toNumber(row && row.planDate);
+      }
+    });
+
+    wbsRows.forEach(function (wbs) {
+      const planStart = parseDate(wbs && wbs.planStartTime);
+      const planEnd = parseDate(wbs && wbs.planEndTime);
+      const detailName = String((wbs && wbs.detailName) || "").trim();
+      const detailId = String((wbs && wbs.detailId) || "").trim();
+      if (!detailName || !detailId || !intervalsIntersect(planStart, planEnd, nextWeek.start, nextWeek.end)) {
+        return;
+      }
+
+      const key = createDedupKey({
+        majorPerson: isTentativeOwner(wbs) ? "" : wbs.majorPerson,
+        wbsId: detailId,
+        extName: detailName
+      });
+      if (dedup.has(key)) {
+        return;
+      }
+
+      const tentative = isTentativeOwner(wbs);
+      if (tentative) {
+        generated.push(createNextExecutionRow(wbs, "", context));
+        dedup.add(key);
+        return;
+      }
+
+      const person = String((wbs && wbs.majorPerson) || "").trim();
+      if (!person) {
+        return;
+      }
+
+      const intersectionStart = planStart > nextWeek.start ? planStart : nextWeek.start;
+      const intersectionEnd = planEnd < nextWeek.end ? planEnd : nextWeek.end;
+      const intersectionWorkdays = countWorkdaysInRange(intersectionStart, intersectionEnd);
+      const capacity = nextWeek.workdays.length * 8;
+      const remaining = Math.max(0, capacity - (usedHoursByPerson[person] || 0));
+      const durationHours = Math.max(0, Math.floor(toNumber(wbs && wbs.duration) * 8));
+      const assignableHours = Math.min(intersectionWorkdays * 8, durationHours || intersectionWorkdays * 8, remaining);
+
+      splitHours(assignableHours).forEach(function (hours) {
+        generated.push(createNextExecutionRow(wbs, hours, context));
+      });
+      if (assignableHours > 0) {
+        usedHoursByPerson[person] = (usedHoursByPerson[person] || 0) + assignableHours;
+        dedup.add(key);
+      }
+    });
+
+    return generated;
+  }
+
+  function insertRowsIntoDataTable($table, dt, rows) {
+    if (!rows.length) {
+      return;
+    }
+    const CHANGE_STORE = DataTablesUtil.const.DATA_STORE_CHG || "changeData";
+    const changeData = $table.data(CHANGE_STORE) || [];
+
+    rows.forEach(function (row) {
+      if (dt && dt.row && typeof dt.row.add === "function") {
+        dt.row.add(row);
+      }
+      changeData.push(row);
+    });
+
+    if (dt && typeof dt.draw === "function") {
+      dt.draw(false);
+    }
+    $table.data(CHANGE_STORE, changeData);
+  }
+
+  async function fillNextWeekWbsPlan(context) {
+    if (!context.wkId) {
+      throw new Error("未找到当前周报 wkId，无法填写下周 WBS 明细");
+    }
+
+    const $ = window.jQuery;
+    const $table = findNextExecutionTable($);
+    const dt = getDataTableApi($table);
+    if (!$table.length || !dt) {
+      throw new Error("未找到下周计划 DataTable，无法写入 executionNext");
+    }
+
+    const nextWeek = getNextWeekInfo(context);
+    if (!nextWeek.hasHolidayTable) {
+      console.warn("[cw-batch-work] 未内置 " + nextWeek.start.getFullYear() + " 年完整节假日表，下周工作日按周一至周五计算");
+    }
+
+    post(
+      "CW_BATCH_WORK_RUNNING",
+      "查询下周 WBS 计划 " + nextWeek.startText + " 至 " + nextWeek.endText
+    );
+    const wbsRows = await fetchProjectPlanDetails(context);
+    const existingRows = await fetchExistingNextExecutions(context.wkId);
+    const generatedRows = buildNextExecutionRows(wbsRows, existingRows, context, nextWeek);
+
+    insertRowsIntoDataTable($table, dt, generatedRows);
+    const tableId = $table.attr("id") || "";
+    const modifyData = tableId && DataTablesUtil.data && DataTablesUtil.data.getModifyData
+      ? DataTablesUtil.data.getModifyData(tableId)
+      : null;
+    console.log("下周 WBS 计划即将提交的数据:", modifyData);
+
+    return {
+      insertCount: generatedRows.length,
+      wbsCount: wbsRows.length,
+      existingCount: existingRows.length,
+      tableId: tableId,
+      modifyData: modifyData
+    };
+  }
+
+  async function runBatchWork() {
     const $ = window.jQuery;
     const tableId = "WkExecutiongrid";
     const $table = $("#" + tableId);
@@ -588,32 +1179,44 @@
 
     $table.data(CHANGE_STORE, changeData);
 
-    const modifyData = DataTablesUtil.data.getModifyData(tableId);
-    const updateCount = modifyData && modifyData.update ? modifyData.update.length : 0;
+    const updateModifyData = DataTablesUtil.data.getModifyData(tableId);
+    const updateCount = updateModifyData && updateModifyData.update ? updateModifyData.update.length : 0;
 
     console.table(result);
-    console.log("即将提交的数据:", modifyData);
+    console.log("本周报工即将提交的数据:", updateModifyData);
 
-    if (updateCount <= 0) {
-      console.warn("没有可提交的 update 数据，取消自动保存");
+    post("CW_BATCH_WORK_RUNNING", "生成下周 WBS 计划明细");
+    const context = await getWeeklyContext();
+    const nextPlanResult = await fillNextWeekWbsPlan(context);
+    const finalModifyData = {
+      execution: DataTablesUtil.data.getModifyData(tableId),
+      executionNext: nextPlanResult.modifyData
+    };
+
+    if (updateCount <= 0 && nextPlanResult.insertCount <= 0) {
+      console.warn("没有可提交的 update/insert 数据，取消自动保存");
       return {
         updateCount: 0,
+        nextInsertCount: 0,
         result: result,
         skipped: true
       };
     }
 
-    console.log("检测到 " + updateCount + " 条 update，开始自动保存...");
+    console.log("检测到 " + updateCount + " 条 update、" + nextPlanResult.insertCount + " 条 executionNext insert，开始自动保存...");
+    console.log("最终提交数据:", finalModifyData);
     WkFormJS.saveAll();
 
     return {
       updateCount: updateCount,
+      nextInsertCount: nextPlanResult.insertCount,
+      nextPlan: nextPlanResult,
       result: result,
       skipped: false
     };
   }
 
-  function run() {
+  async function run() {
     if (running) {
       post("CW_BATCH_WORK_RUNNING", "已有批量报工任务运行中");
       return;
@@ -623,14 +1226,14 @@
 
     try {
       post("CW_BATCH_WORK_RUNNING", "批量填充中");
-      const result = runBatchWork();
+      const result = await runBatchWork();
 
       if (result.skipped) {
-        post("CW_BATCH_WORK_DONE", "没有可提交的 update 数据");
+        post("CW_BATCH_WORK_DONE", "没有可提交的 update/insert 数据");
         return;
       }
 
-      post("CW_BATCH_WORK_DONE", "已触发保存，update " + result.updateCount + " 条");
+      post("CW_BATCH_WORK_DONE", "已触发保存，update " + result.updateCount + " 条，下周计划 insert " + result.nextInsertCount + " 条");
     } catch (error) {
       post("CW_BATCH_WORK_ERROR", "批量报工失败: " + (error && error.message ? error.message : String(error)));
       throw error;
@@ -649,15 +1252,15 @@
     }
 
     if (data.type === "CW_BATCH_WORK_START") {
-      try {
-        run();
-      } catch (error) {
+      run().catch(function (error) {
         console.error("[cw-batch-work]", error);
-      }
+      });
     }
 
     if (data.type === "CW_WEEKLY_SUMMARY_START") {
-      runWeeklySummary().catch(function (error) {
+      runWeeklySummary({
+        forceRefresh: Boolean(data.forceRefresh)
+      }).catch(function (error) {
         console.error("[cw-weekly-summary]", error);
       });
       return;

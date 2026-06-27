@@ -194,7 +194,7 @@
     );
   }
 
-  function startWeeklySummary() {
+  function startWeeklySummary(event) {
     if (summaryRunning) {
       return;
     }
@@ -209,7 +209,8 @@
     window.postMessage(
       {
         source: WORK_SOURCE_CONTENT,
-        type: "CW_WEEKLY_SUMMARY_START"
+        type: "CW_WEEKLY_SUMMARY_START",
+        forceRefresh: Boolean(event && event.shiftKey)
       },
       "*"
     );
@@ -447,6 +448,33 @@
     });
   }
 
+  function sendRuntimeMessage(message) {
+    return new Promise(function (resolve) {
+      chrome.runtime.sendMessage(message, resolve);
+    });
+  }
+
+  function handleWeeklySummaryCacheRequest(data) {
+    const type =
+      data.type === "CW_WEEKLY_SUMMARY_CACHE_GET"
+        ? "CW_WEEKLY_SUMMARY_CACHE_GET"
+        : "CW_WEEKLY_SUMMARY_CACHE_SET";
+
+    sendRuntimeMessage({
+      type: type,
+      key: data.key,
+      value: data.value
+    }).then(function (response) {
+      postToPage({
+        type: type + "_RESULT",
+        requestId: data.requestId,
+        ok: Boolean(response && response.ok),
+        cache: response && response.cache,
+        error: response && response.error
+      });
+    });
+  }
+
   function findWeeklyExportButton() {
     const candidates = Array.from(
       document.querySelectorAll("button, a, input[type=button], input[type=submit]")
@@ -616,6 +644,14 @@
     if (data.source === WORK_SOURCE_PAGE) {
       if (data.type === "CW_WEEKLY_SUMMARY_AI_REQUEST") {
         startAiSummary(data);
+        return;
+      }
+
+      if (
+        data.type === "CW_WEEKLY_SUMMARY_CACHE_GET" ||
+        data.type === "CW_WEEKLY_SUMMARY_CACHE_SET"
+      ) {
+        handleWeeklySummaryCacheRequest(data);
         return;
       }
 
