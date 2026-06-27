@@ -47,6 +47,12 @@
     console.warn("[cw-batch-work][wbs] " + step, detail);
   }
 
+  function delay(ms) {
+    return new Promise(function (resolve) {
+      window.setTimeout(resolve, ms);
+    });
+  }
+
   function getWebapp() {
     const raw = String(window.localStorage.getItem("webapp") || "/jxpmo").trim();
     if (!raw || raw === "/") {
@@ -1277,6 +1283,12 @@
     });
   }
 
+  function getMissingMajorPersonRows(rows) {
+    return rows.filter(function (row) {
+      return !String((row && row.majorPerson) || "").trim();
+    });
+  }
+
   async function fillNextWeekWbsPlan(context) {
     if (!context.wkId) {
       throw new Error("未找到当前周报 wkId，无法填写下周 WBS 明细");
@@ -1324,9 +1336,20 @@
       existingNextRows: existingRows.length
     });
     const generatedRows = buildNextExecutionRows(wbsRows, existingRows, context, nextWeek);
+    const missingMajorPersonRows = getMissingMajorPersonRows(generatedRows);
     logWbsStep("generated executionNext rows", {
       count: generatedRows.length,
+      missingMajorPersonCount: missingMajorPersonRows.length,
       sample: generatedRows.slice(0, 10).map(function (row) {
+        return {
+          extName: row.extName,
+          wbsId: row.wbsId,
+          majorPerson: row.majorPerson,
+          majorPersonName: row.majorPersonName,
+          planDate: row.planDate
+        };
+      }),
+      missingMajorPersonSample: missingMajorPersonRows.slice(0, 10).map(function (row) {
         return {
           extName: row.extName,
           wbsId: row.wbsId,
@@ -1354,6 +1377,8 @@
       insertCount: generatedRows.length,
       wbsCount: wbsRows.length,
       existingCount: existingRows.length,
+      missingMajorPersonCount: missingMajorPersonRows.length,
+      missingMajorPersonRows: missingMajorPersonRows,
       tableId: tableId,
       modifyData: modifyData
     };
@@ -1494,6 +1519,18 @@
       modifyData: updateModifyData
     });
 
+    if (updateCount > 0) {
+      logWbsStep("current week saveAll start", {
+        updateCount: updateCount,
+        modifyData: updateModifyData
+      });
+      WkFormJS.saveAll();
+      logWbsStep("current week saveAll called");
+      await delay(800);
+    } else {
+      logWbsStep("skip current week save because no update data");
+    }
+
     post("CW_BATCH_WORK_RUNNING", "生成下周 WBS 计划明细");
     const context = await getWeeklyContext();
     logWbsStep("weekly context resolved", {
@@ -1523,25 +1560,63 @@
       return {
         updateCount: 0,
         nextInsertCount: 0,
+        currentSaveTriggered: false,
         result: result,
         skipped: true
       };
     }
 
-    logWbsStep("saveAll start", {
+    if (nextPlanResult.missingMajorPersonCount > 0) {
+      warnWbsStep("skip executionNext save because missing majorPerson", {
+        updateCount: updateCount,
+        nextInsertCount: nextPlanResult.insertCount,
+        missingMajorPersonCount: nextPlanResult.missingMajorPersonCount,
+        missingMajorPersonRows: nextPlanResult.missingMajorPersonRows.slice(0, 20)
+      });
+      return {
+        updateCount: updateCount,
+        nextInsertCount: nextPlanResult.insertCount,
+        missingMajorPersonCount: nextPlanResult.missingMajorPersonCount,
+        currentSaveTriggered: updateCount > 0,
+        nextPlan: nextPlanResult,
+        result: result,
+        skipped: false,
+        nextSaveSkipped: true
+      };
+    }
+
+    if (nextPlanResult.insertCount <= 0) {
+      logWbsStep("skip executionNext save because no generated insert rows", {
+        updateCount: updateCount,
+        nextInsertCount: nextPlanResult.insertCount
+      });
+      return {
+        updateCount: updateCount,
+        nextInsertCount: 0,
+        currentSaveTriggered: updateCount > 0,
+        nextPlan: nextPlanResult,
+        result: result,
+        skipped: false,
+        nextSaveSkipped: false
+      };
+    }
+
+    logWbsStep("executionNext saveAll start", {
       updateCount: updateCount,
       nextInsertCount: nextPlanResult.insertCount,
       finalModifyData: finalModifyData
     });
     WkFormJS.saveAll();
-    logWbsStep("saveAll called");
+    logWbsStep("executionNext saveAll called");
 
     return {
       updateCount: updateCount,
       nextInsertCount: nextPlanResult.insertCount,
+      currentSaveTriggered: updateCount > 0,
       nextPlan: nextPlanResult,
       result: result,
-      skipped: false
+      skipped: false,
+      nextSaveSkipped: false
     };
   }
 
@@ -1559,6 +1634,15 @@
 
       if (result.skipped) {
         post("CW_BATCH_WORK_DONE", "没有可提交的 update/insert 数据");
+        return;
+      }
+
+      if (result.nextSaveSkipped) {
+        const currentMessage = result.currentSaveTriggered ? "本周报工已保存；" : "";
+        post(
+          "CW_BATCH_WORK_DONE",
+          currentMessage + "下周计划已填入 " + result.nextInsertCount + " 条，其中 " + result.missingMajorPersonCount + " 条缺少人员，需手工保存"
+        );
         return;
       }
 
