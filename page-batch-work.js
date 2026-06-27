@@ -31,6 +31,22 @@
     );
   }
 
+  function logWbsStep(step, detail) {
+    if (detail === undefined) {
+      console.log("[cw-batch-work][wbs] " + step);
+      return;
+    }
+    console.log("[cw-batch-work][wbs] " + step, detail);
+  }
+
+  function warnWbsStep(step, detail) {
+    if (detail === undefined) {
+      console.warn("[cw-batch-work][wbs] " + step);
+      return;
+    }
+    console.warn("[cw-batch-work][wbs] " + step, detail);
+  }
+
   function getWebapp() {
     const raw = String(window.localStorage.getItem("webapp") || "/jxpmo").trim();
     if (!raw || raw === "/") {
@@ -774,11 +790,34 @@
       length: "-1",
       rows: "1073741824"
     });
+    const url = getBaseUrl() + "/rest/project/ProjectPlanDetailService/query?" + params.toString();
+    const startedAt = performance.now();
+    logWbsStep("request ProjectPlanDetailService/query", {
+      projectId: context.projectId,
+      url: url
+    });
     const data = await fetchJson(
-      getBaseUrl() + "/rest/project/ProjectPlanDetailService/query?" + params.toString(),
+      url,
       "fetch WBS plan details"
     );
-    return normalizeRows(data);
+    const rows = normalizeRows(data);
+    logWbsStep("response ProjectPlanDetailService/query", {
+      ms: Math.round(performance.now() - startedAt),
+      rows: rows.length,
+      total: data && (data.recordsFiltered || data.recordsTotal || data.total),
+      sample: rows.slice(0, 3).map(function (row) {
+        return {
+          detailId: row && row.detailId,
+          detailName: row && row.detailName,
+          majorPerson: row && row.majorPerson,
+          roleName: row && row.roleName,
+          duration: row && row.duration,
+          planStartTime: row && row.planStartTime,
+          planEndTime: row && row.planEndTime
+        };
+      })
+    });
+    return rows;
   }
 
   async function fetchExistingNextExecutions(wkId) {
@@ -797,11 +836,33 @@
       length: "-1",
       rows: "1073741824"
     });
+    const url = getBaseUrl() + "/rest/project/WkExecutionService/query?" + params.toString();
+    const startedAt = performance.now();
+    logWbsStep("request WkExecutionService/query type=2", {
+      wkId: wkId,
+      url: url
+    });
     const data = await fetchJson(
-      getBaseUrl() + "/rest/project/WkExecutionService/query?" + params.toString(),
+      url,
       "fetch next week executions"
     );
-    return normalizeRows(data);
+    const rows = normalizeRows(data);
+    logWbsStep("response WkExecutionService/query type=2", {
+      ms: Math.round(performance.now() - startedAt),
+      rows: rows.length,
+      total: data && (data.recordsFiltered || data.recordsTotal || data.total),
+      sample: rows.slice(0, 3).map(function (row) {
+        return {
+          extId: row && row.extId,
+          extName: row && row.extName,
+          wbsId: row && row.wbsId,
+          majorPerson: row && row.majorPerson,
+          majorPersonName: row && row.majorPersonName,
+          planDate: row && row.planDate
+        };
+      })
+    });
+    return rows;
   }
 
   function getDataTableApi($table) {
@@ -813,15 +874,25 @@
 
   function findNextExecutionTable($) {
     const candidates = [];
+    const inspected = [];
     $("table").each(function () {
       const $table = $(this);
       const url = String($table.attr("data-url") || "");
       const id = String($table.attr("id") || "");
-      if (url.indexOf("WkExecutionService/query") >= 0 && url.indexOf("type=2") >= 0) {
+      const matchedByUrl = url.indexOf("WkExecutionService/query") >= 0 && url.indexOf("type=2") >= 0;
+      const matchedById = /next|ExecutionNext|WkExecutionNext|NextWk|WkNext/i.test(id);
+      inspected.push({
+        id: id,
+        hasDt: Boolean(getDataTableApi($table)),
+        matchedByUrl: matchedByUrl,
+        matchedById: matchedById,
+        dataUrl: url
+      });
+      if (matchedByUrl) {
         candidates.push($table);
         return;
       }
-      if (/next|ExecutionNext|WkExecutionNext|NextWk|WkNext/i.test(id)) {
+      if (matchedById) {
         candidates.push($table);
       }
     });
@@ -840,11 +911,30 @@
       }
     }
 
+    logWbsStep("inspect next execution tables", {
+      inspectedCount: inspected.length,
+      candidates: candidates.map(function ($candidate) {
+        return {
+          id: $candidate.attr("id") || "",
+          hasDt: Boolean(getDataTableApi($candidate)),
+          dataUrl: String($candidate.attr("data-url") || "")
+        };
+      }),
+      inspected: inspected
+    });
+
     for (let j = 0; j < candidates.length; j += 1) {
       if (getDataTableApi(candidates[j])) {
+        logWbsStep("selected next execution table", {
+          id: candidates[j].attr("id") || "",
+          dataUrl: String(candidates[j].attr("data-url") || "")
+        });
         return candidates[j];
       }
     }
+    warnWbsStep("no initialized next execution table candidate found", {
+      candidateCount: candidates.length
+    });
     return candidates[0] || $();
   }
 
@@ -944,6 +1034,20 @@
     const dedup = new Set();
     const usedHoursByPerson = {};
     const generated = [];
+    const stats = {
+      total: wbsRows.length,
+      existingRows: existingRows.length,
+      noNameOrId: 0,
+      outsideNextWeek: 0,
+      duplicate: 0,
+      tentative: 0,
+      noPerson: 0,
+      zeroAssignable: 0,
+      generatedTasks: 0,
+      generatedRows: 0
+    };
+    const includedSamples = [];
+    const skippedSamples = [];
 
     existingRows.forEach(function (row) {
       const key = createDedupKey(row);
@@ -961,7 +1065,28 @@
       const planEnd = parseDate(wbs && wbs.planEndTime);
       const detailName = String((wbs && wbs.detailName) || "").trim();
       const detailId = String((wbs && wbs.detailId) || "").trim();
-      if (!detailName || !detailId || !intervalsIntersect(planStart, planEnd, nextWeek.start, nextWeek.end)) {
+      if (!detailName || !detailId) {
+        stats.noNameOrId += 1;
+        if (skippedSamples.length < 5) {
+          skippedSamples.push({
+            reason: "noNameOrId",
+            detailId: detailId,
+            detailName: detailName
+          });
+        }
+        return;
+      }
+      if (!intervalsIntersect(planStart, planEnd, nextWeek.start, nextWeek.end)) {
+        stats.outsideNextWeek += 1;
+        if (skippedSamples.length < 5) {
+          skippedSamples.push({
+            reason: "outsideNextWeek",
+            detailId: detailId,
+            detailName: detailName,
+            planStartTime: wbs && wbs.planStartTime,
+            planEndTime: wbs && wbs.planEndTime
+          });
+        }
         return;
       }
 
@@ -971,6 +1096,15 @@
         extName: detailName
       });
       if (dedup.has(key)) {
+        stats.duplicate += 1;
+        if (skippedSamples.length < 5) {
+          skippedSamples.push({
+            reason: "duplicate",
+            key: key,
+            detailId: detailId,
+            detailName: detailName
+          });
+        }
         return;
       }
 
@@ -978,11 +1112,33 @@
       if (tentative) {
         generated.push(createNextExecutionRow(wbs, "", context));
         dedup.add(key);
+        stats.tentative += 1;
+        stats.generatedTasks += 1;
+        stats.generatedRows += 1;
+        if (includedSamples.length < 10) {
+          includedSamples.push({
+            detailId: detailId,
+            detailName: detailName,
+            owner: "待定",
+            planDate: "",
+            chunks: [""]
+          });
+        }
         return;
       }
 
       const person = String((wbs && wbs.majorPerson) || "").trim();
       if (!person) {
+        stats.noPerson += 1;
+        if (skippedSamples.length < 5) {
+          skippedSamples.push({
+            reason: "noPerson",
+            detailId: detailId,
+            detailName: detailName,
+            roleName: wbs && wbs.roleName,
+            majorPerson: wbs && wbs.majorPerson
+          });
+        }
         return;
       }
 
@@ -993,25 +1149,87 @@
       const remaining = Math.max(0, capacity - (usedHoursByPerson[person] || 0));
       const durationHours = Math.max(0, Math.floor(toNumber(wbs && wbs.duration) * 8));
       const assignableHours = Math.min(intersectionWorkdays * 8, durationHours || intersectionWorkdays * 8, remaining);
+      const chunks = splitHours(assignableHours);
 
-      splitHours(assignableHours).forEach(function (hours) {
+      if (!chunks.length) {
+        stats.zeroAssignable += 1;
+        if (skippedSamples.length < 5) {
+          skippedSamples.push({
+            reason: "zeroAssignable",
+            detailId: detailId,
+            detailName: detailName,
+            person: person,
+            roleName: wbs && wbs.roleName,
+            intersectionWorkdays: intersectionWorkdays,
+            duration: wbs && wbs.duration,
+            durationHours: durationHours,
+            remaining: remaining
+          });
+        }
+      }
+
+      chunks.forEach(function (hours) {
         generated.push(createNextExecutionRow(wbs, hours, context));
       });
       if (assignableHours > 0) {
         usedHoursByPerson[person] = (usedHoursByPerson[person] || 0) + assignableHours;
         dedup.add(key);
+        stats.generatedTasks += 1;
+        stats.generatedRows += chunks.length;
+        if (includedSamples.length < 10) {
+          includedSamples.push({
+            detailId: detailId,
+            detailName: detailName,
+            person: person,
+            roleName: wbs && wbs.roleName,
+            intersectionWorkdays: intersectionWorkdays,
+            capacity: capacity,
+            usedBefore: capacity - remaining,
+            remainingBefore: remaining,
+            duration: wbs && wbs.duration,
+            durationHours: durationHours,
+            assignableHours: assignableHours,
+            chunks: chunks
+          });
+        }
       }
+    });
+
+    logWbsStep("build next execution rows result", {
+      nextWeek: {
+        start: nextWeek.startText,
+        end: nextWeek.endText,
+        workdays: nextWeek.workdays.map(formatDate)
+      },
+      stats: stats,
+      usedHoursByPerson: usedHoursByPerson,
+      includedSamples: includedSamples,
+      skippedSamples: skippedSamples
     });
 
     return generated;
   }
 
   function insertRowsIntoDataTable($table, dt, rows) {
+    const tableId = $table && $table.length ? $table.attr("id") || "" : "";
+    logWbsStep("insert rows into DataTable start", {
+      tableId: tableId,
+      incomingRows: rows.length,
+      hasDt: Boolean(dt),
+      hasRowAdd: Boolean(dt && dt.row && typeof dt.row.add === "function")
+    });
     if (!rows.length) {
+      warnWbsStep("skip DataTable insert because generated rows is empty", {
+        tableId: tableId
+      });
       return;
     }
     const CHANGE_STORE = DataTablesUtil.const.DATA_STORE_CHG || "changeData";
     const changeData = $table.data(CHANGE_STORE) || [];
+    const beforeChangeStoreCount = changeData.length;
+    const beforeDtCount = dt && dt.rows && typeof dt.rows === "function"
+      ? dt.rows().data().toArray().length
+      : null;
 
     rows.forEach(function (row) {
       if (dt && dt.row && typeof dt.row.add === "function") {
@@ -1024,6 +1242,27 @@
       dt.draw(false);
     }
     $table.data(CHANGE_STORE, changeData);
+    const afterDtCount = dt && dt.rows && typeof dt.rows === "function"
+      ? dt.rows().data().toArray().length
+      : null;
+    logWbsStep("insert rows into DataTable done", {
+      tableId: tableId,
+      beforeChangeStoreCount: beforeChangeStoreCount,
+      afterChangeStoreCount: changeData.length,
+      beforeDtCount: beforeDtCount,
+      afterDtCount: afterDtCount,
+      insertedSample: rows.slice(0, 5).map(function (row) {
+        return {
+          extName: row.extName,
+          wbsId: row.wbsId,
+          majorPerson: row.majorPerson,
+          majorPersonName: row.majorPersonName,
+          planDate: row.planDate,
+          nextWkId: row.nextWkId,
+          _add_: row._add_
+        };
+      })
+    });
   }
 
   async function fillNextWeekWbsPlan(context) {
@@ -1032,13 +1271,32 @@
     }
 
     const $ = window.jQuery;
+    logWbsStep("fill next week WBS plan start", {
+      context: {
+        wkId: context.wkId,
+        projectId: context.projectId,
+        projectName: context.projectName,
+        weekStart: context.weekStart,
+        weekEnd: context.weekEnd
+      }
+    });
     const $table = findNextExecutionTable($);
     const dt = getDataTableApi($table);
     if (!$table.length || !dt) {
+      warnWbsStep("next execution DataTable not found", {
+        hasTable: Boolean($table.length),
+        hasDt: Boolean(dt)
+      });
       throw new Error("未找到下周计划 DataTable，无法写入 executionNext");
     }
 
     const nextWeek = getNextWeekInfo(context);
+    logWbsStep("next week range resolved", {
+      start: nextWeek.startText,
+      end: nextWeek.endText,
+      workdays: nextWeek.workdays.map(formatDate),
+      hasHolidayTable: nextWeek.hasHolidayTable
+    });
     if (!nextWeek.hasHolidayTable) {
       console.warn("[cw-batch-work] 未内置 " + nextWeek.start.getFullYear() + " 年完整节假日表，下周工作日按周一至周五计算");
     }
@@ -1049,14 +1307,36 @@
     );
     const wbsRows = await fetchProjectPlanDetails(context);
     const existingRows = await fetchExistingNextExecutions(context.wkId);
+    logWbsStep("source rows loaded", {
+      wbsRows: wbsRows.length,
+      existingNextRows: existingRows.length
+    });
     const generatedRows = buildNextExecutionRows(wbsRows, existingRows, context, nextWeek);
+    logWbsStep("generated executionNext rows", {
+      count: generatedRows.length,
+      sample: generatedRows.slice(0, 10).map(function (row) {
+        return {
+          extName: row.extName,
+          wbsId: row.wbsId,
+          majorPerson: row.majorPerson,
+          majorPersonName: row.majorPersonName,
+          planDate: row.planDate
+        };
+      })
+    });
 
     insertRowsIntoDataTable($table, dt, generatedRows);
     const tableId = $table.attr("id") || "";
     const modifyData = tableId && DataTablesUtil.data && DataTablesUtil.data.getModifyData
       ? DataTablesUtil.data.getModifyData(tableId)
       : null;
-    console.log("下周 WBS 计划即将提交的数据:", modifyData);
+    logWbsStep("executionNext modifyData before save", {
+      tableId: tableId,
+      insertCount: modifyData && modifyData.insert ? modifyData.insert.length : null,
+      updateCount: modifyData && modifyData.update ? modifyData.update.length : null,
+      deleteCount: modifyData && modifyData.delete ? modifyData.delete.length : null,
+      modifyData: modifyData
+    });
 
     return {
       insertCount: generatedRows.length,
@@ -1068,6 +1348,11 @@
   }
 
   async function runBatchWork() {
+    logWbsStep("batch work start", {
+      href: window.location.href,
+      webapp: getWebapp(),
+      baseUrl: getBaseUrl()
+    });
     const $ = window.jQuery;
     const tableId = "WkExecutiongrid";
     const $table = $("#" + tableId);
@@ -1085,6 +1370,13 @@
     const dataArr = rows.data().toArray();
     const nodeArr = rows.nodes().toArray();
     const changeData = $table.data(CHANGE_STORE) || [];
+    logWbsStep("current week execution table loaded", {
+      tableId: tableId,
+      rows: dataArr.length,
+      nodeRows: nodeArr.length,
+      changeStoreRows: changeData.length,
+      pk: pk
+    });
     const changedPkSet = new Set(changeData.map(function (x) {
       return x && x[pk];
     }).filter(Boolean));
@@ -1183,10 +1475,27 @@
     const updateCount = updateModifyData && updateModifyData.update ? updateModifyData.update.length : 0;
 
     console.table(result);
-    console.log("本周报工即将提交的数据:", updateModifyData);
+    logWbsStep("current week execution modifyData before WBS", {
+      updateCount: updateCount,
+      insertCount: updateModifyData && updateModifyData.insert ? updateModifyData.insert.length : null,
+      deleteCount: updateModifyData && updateModifyData.delete ? updateModifyData.delete.length : null,
+      modifyData: updateModifyData
+    });
 
     post("CW_BATCH_WORK_RUNNING", "生成下周 WBS 计划明细");
     const context = await getWeeklyContext();
+    logWbsStep("weekly context resolved", {
+      wkId: context.wkId,
+      projectId: context.projectId,
+      projectName: context.projectName,
+      weekDate: context.weekDate,
+      weekStart: context.weekStart,
+      weekEnd: context.weekEnd,
+      prodPerson: context.prodPerson,
+      prodPersonName: context.prodPersonName,
+      projectManager: context.projectManager,
+      projectManagerName: context.projectManagerName
+    });
     const nextPlanResult = await fillNextWeekWbsPlan(context);
     const finalModifyData = {
       execution: DataTablesUtil.data.getModifyData(tableId),
@@ -1194,7 +1503,11 @@
     };
 
     if (updateCount <= 0 && nextPlanResult.insertCount <= 0) {
-      console.warn("没有可提交的 update/insert 数据，取消自动保存");
+      warnWbsStep("skip save because no update/insert data", {
+        updateCount: updateCount,
+        nextInsertCount: nextPlanResult.insertCount,
+        nextPlan: nextPlanResult
+      });
       return {
         updateCount: 0,
         nextInsertCount: 0,
@@ -1203,9 +1516,13 @@
       };
     }
 
-    console.log("检测到 " + updateCount + " 条 update、" + nextPlanResult.insertCount + " 条 executionNext insert，开始自动保存...");
-    console.log("最终提交数据:", finalModifyData);
+    logWbsStep("saveAll start", {
+      updateCount: updateCount,
+      nextInsertCount: nextPlanResult.insertCount,
+      finalModifyData: finalModifyData
+    });
     WkFormJS.saveAll();
+    logWbsStep("saveAll called");
 
     return {
       updateCount: updateCount,
