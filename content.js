@@ -14,8 +14,6 @@
   const WORK_SCRIPT_ID = "cw-batch-work-page-script";
   const WORK_WRAPPER_ID = "cw-batch-work-wrapper";
   const WORK_BTN_ID = "cw-batch-work-btn";
-  const SUMMARY_WRAPPER_ID = "cw-weekly-summary-wrapper";
-  const SUMMARY_BTN_ID = "cw-weekly-summary-btn";
   const WORK_STATUS_ID = "cw-batch-work-status";
   const WORK_SOURCE_PAGE = "cw-batch-work-page";
   const WORK_SOURCE_CONTENT = "cw-batch-work-content";
@@ -28,7 +26,6 @@
 
   let dailyRunning = false;
   let workRunning = false;
-  let summaryRunning = false;
   let weeklyRunning = false;
   let aiPort = null;
 
@@ -194,77 +191,6 @@
     );
   }
 
-  function startWeeklySummary(event) {
-    if (summaryRunning) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      "将读取本周日报并使用 AI 覆盖“本周执行情况”，完成后自动保存。是否继续？"
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    window.postMessage(
-      {
-        source: WORK_SOURCE_CONTENT,
-        type: "CW_WEEKLY_SUMMARY_START",
-        forceRefresh: Boolean(event && event.shiftKey)
-      },
-      "*"
-    );
-  }
-
-  function findCurrWkResultTextarea() {
-    return (
-      document.querySelector("textarea#currWkResult") ||
-      document.querySelector("textarea[name='currWkResult']") ||
-      document.querySelector("#currWkResult") ||
-      document.querySelector("[name='currWkResult']")
-    );
-  }
-
-  function ensureWeeklySummaryButton() {
-    if (!isWorkReportPage()) {
-      return;
-    }
-
-    const field = findCurrWkResultTextarea();
-    if (!field) {
-      return;
-    }
-
-    let wrapper = document.getElementById(SUMMARY_WRAPPER_ID);
-    if (!wrapper) {
-      wrapper = document.createElement("div");
-      wrapper.id = SUMMARY_WRAPPER_ID;
-      wrapper.style.cssText = "text-align:right;margin-top:10px;";
-    }
-
-    let button = document.getElementById(SUMMARY_BTN_ID);
-    if (!button) {
-      button = document.createElement("button");
-      button.id = SUMMARY_BTN_ID;
-      button.type = "button";
-      button.textContent = "总结周报";
-      button.className = "btn btn-info";
-      button.addEventListener("click", startWeeklySummary);
-    }
-
-    button.className = "btn btn-info";
-    button.style.marginTop = "";
-    button.style.marginLeft = "";
-
-    if (button.parentElement !== wrapper) {
-      wrapper.appendChild(button);
-    }
-
-    if (wrapper.previousElementSibling !== field) {
-      field.insertAdjacentElement("afterend", wrapper);
-    }
-  }
-
   function ensureWorkButton() {
     if (!isWorkReportPage()) {
       return;
@@ -273,12 +199,10 @@
     const existingWorkButton = document.getElementById(WORK_BTN_ID);
     const existingWorkWrapper = document.getElementById(WORK_WRAPPER_ID);
     if (existingWorkButton || existingWorkWrapper) {
-      ensureWeeklySummaryButton();
       return;
     }
 
     const recalcButton = findRecalculateButton();
-    ensureWeeklySummaryButton();
     if (!recalcButton) {
       return;
     }
@@ -356,24 +280,6 @@
       button.style.opacity = workRunning ? "0.7" : "1";
       button.style.cursor = workRunning ? "not-allowed" : "pointer";
       button.textContent = workRunning ? "报工中..." : "批量报工";
-    }
-  }
-
-  function setWeeklySummaryStatus(text, running) {
-    const status = document.getElementById(WORK_STATUS_ID);
-    const button = document.getElementById(SUMMARY_BTN_ID);
-    if (typeof running === "boolean") {
-      summaryRunning = running;
-    }
-    if (status) {
-      status.textContent = text;
-      status.style.color = summaryRunning ? "#0b73f6" : "#666";
-    }
-    if (button) {
-      button.disabled = summaryRunning;
-      button.style.opacity = summaryRunning ? "0.7" : "1";
-      button.style.cursor = summaryRunning ? "not-allowed" : "pointer";
-      button.textContent = summaryRunning ? "总结中..." : "总结周报";
     }
   }
 
@@ -667,26 +573,6 @@
 
       if (data.type === "CW_BATCH_WORK_ERROR") {
         setWorkStatus(data.message || "失败", false);
-        return;
-      }
-
-      if (data.type === "CW_WEEKLY_SUMMARY_RUNNING") {
-        setWeeklySummaryStatus(data.message || "处理中", true);
-        return;
-      }
-
-      if (data.type === "CW_WEEKLY_SUMMARY_PROGRESS") {
-        setWeeklySummaryStatus(data.message || "处理中", true);
-        return;
-      }
-
-      if (data.type === "CW_WEEKLY_SUMMARY_DONE") {
-        setWeeklySummaryStatus(data.message || "完成", false);
-        return;
-      }
-
-      if (data.type === "CW_WEEKLY_SUMMARY_ERROR") {
-        setWeeklySummaryStatus(data.message || "失败", false);
         return;
       }
 

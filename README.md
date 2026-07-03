@@ -30,13 +30,10 @@
   - Sets generated WBS plan completion time to next Sunday `17:30:00`
   - Writes modified rows into DataTables change store
   - Triggers `WkFormJS.saveAll()`
-  - Injects `总结周报`
   - Reads current project weekly report context
-  - Fetches task details from the current Monday-Sunday week
-  - Caches generated daily-task JSON per weekly report; hold `Shift` while clicking `总结周报` to refresh
+  - Caches generated daily-task JSON per weekly report from batch work data
   - Streams AI summary into `本周执行情况`
-  - Triggers `WkFormJS.saveAll()` after summary generation
-  - In batch work mode, uses the already fetched daily-report rows instead of requesting task details again
+  - Uses the already fetched daily-report rows instead of requesting task details again
 - AI weekly summary configuration
   - Click the extension icon to open the popup
   - Supports OpenAI-compatible `baseUrl`, API key, model selection, and editable system prompt

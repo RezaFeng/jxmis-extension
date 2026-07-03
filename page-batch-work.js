@@ -8,7 +8,6 @@
   const SOURCE_CONTENT = "cw-batch-work-content";
 
   let running = false;
-  let summaryRunning = false;
   let pendingAiRequest = null;
 
   const summaryConfig = {
@@ -372,69 +371,6 @@
     const total = Number((data && (data.recordsFiltered || data.total || data.recordsTotal)) || 0);
     const pageCount = Number(data && data.pageCount) || (total > 0 ? Math.ceil(total / summaryConfig.pageSize) : 0);
     return Math.min(pageCount || 1, summaryConfig.maxPages);
-  }
-
-  async function fetchWeeklyTaskDetails(context) {
-    const result = [];
-    const seen = new Set();
-
-    const firstData = await fetchTaskDetailPage(context.projectId, 1);
-    const firstRows = Array.isArray(firstData && firstData.rows) ? firstData.rows : [];
-    appendWeeklyTaskRows(firstRows, context, seen, result);
-
-    const pageCount = getTaskDetailPageCount(firstData);
-    if (!firstRows.length || pageCount <= 1 || pageHasRowsBeforeWeek(firstRows, context)) {
-      result.sort(function (a, b) {
-        return (a.date + a.userFullname).localeCompare(b.date + b.userFullname, "zh-CN");
-      });
-      return result;
-    }
-
-    let nextPage = 2;
-    while (nextPage <= pageCount) {
-      const batch = [];
-      while (nextPage <= pageCount && batch.length < summaryConfig.pageConcurrency) {
-        batch.push(nextPage);
-        nextPage += 1;
-      }
-
-      post(
-        "CW_WEEKLY_SUMMARY_PROGRESS",
-        "并发拉取日报页 " + batch[0] + "-" + batch[batch.length - 1] + " / " + pageCount
-      );
-
-      const pages = await Promise.all(
-        batch.map(function (page) {
-          return fetchTaskDetailPage(context.projectId, page).then(function (data) {
-            return {
-              page: page,
-              data: data
-            };
-          });
-        })
-      );
-
-      let shouldStop = false;
-      pages.sort(function (a, b) {
-        return a.page - b.page;
-      }).forEach(function (item) {
-        const rows = Array.isArray(item.data && item.data.rows) ? item.data.rows : [];
-        appendWeeklyTaskRows(rows, context, seen, result);
-        if (pageHasRowsBeforeWeek(rows, context)) {
-          shouldStop = true;
-        }
-      });
-
-      if (shouldStop) {
-        break;
-      }
-    }
-
-    result.sort(function (a, b) {
-      return (a.date + a.userFullname).localeCompare(b.date + b.userFullname, "zh-CN");
-    });
-
-    return result;
   }
 
   function normalizeMatchText(value) {
@@ -1064,13 +1000,6 @@
     });
   }
 
-  async function getSummaryCache(cacheKey) {
-    const response = await requestContentBridge("CW_WEEKLY_SUMMARY_CACHE_GET", {
-      key: cacheKey
-    });
-    return response.cache || null;
-  }
-
   async function setSummaryCache(cacheKey, value) {
     await requestContentBridge("CW_WEEKLY_SUMMARY_CACHE_SET", {
       key: cacheKey,
@@ -1219,83 +1148,6 @@
       taskCount: taskCount,
       userPrompt: userPrompt
     };
-  }
-
-  async function runWeeklySummary(options) {
-    if (summaryRunning) {
-      post("CW_WEEKLY_SUMMARY_RUNNING", "已有周报总结任务运行中");
-      return;
-    }
-
-    summaryRunning = true;
-    const forceRefresh = Boolean(options && options.forceRefresh);
-
-    try {
-      post("CW_WEEKLY_SUMMARY_RUNNING", "定位本周执行情况文本框");
-      const targetField = findCurrWkResultField();
-      if (!targetField) {
-        throw new Error("未找到“本周执行情况”文本框");
-      }
-      setFieldValue(targetField, "");
-
-      post("CW_WEEKLY_SUMMARY_PROGRESS", "读取当前周报信息");
-      const context = await getWeeklyContext();
-      const cacheKey = createSummaryCacheKey(context);
-      let dailyTasks = null;
-      let userPrompt = "";
-      let cache = null;
-
-      if (!forceRefresh) {
-        cache = await getSummaryCache(cacheKey).catch(function () {
-          return null;
-        });
-      }
-
-      if (
-        cache &&
-        cache.userPrompt &&
-        cache.weekStart === context.weekStart &&
-        cache.weekEnd === context.weekEnd
-      ) {
-        userPrompt = String(cache.userPrompt);
-        post(
-          "CW_WEEKLY_SUMMARY_PROGRESS",
-          "使用缓存日报数据，共 " + Number(cache.dailyTaskCount || 0) + " 条；按住 Shift 点击可重新抓取"
-        );
-      } else {
-        post(
-          "CW_WEEKLY_SUMMARY_PROGRESS",
-          "拉取 " + context.weekStart + " 至 " + context.weekEnd + " 的日报"
-        );
-        dailyTasks = await fetchWeeklyTaskDetails(context);
-        await generateWeeklySummaryWithTasks(context, dailyTasks, targetField, {
-          progressType: "CW_WEEKLY_SUMMARY_PROGRESS"
-        });
-        post("CW_WEEKLY_SUMMARY_DONE", "周报总结已生成并触发保存");
-        return;
-      }
-
-      const taskCount = dailyTasks ? dailyTasks.length : Number(cache && cache.dailyTaskCount) || 0;
-      if (!userPrompt) {
-        throw new Error("未找到本周 taskDetail 日报内容");
-      }
-
-      post("CW_WEEKLY_SUMMARY_PROGRESS", "请求大模型，总计 " + taskCount + " 条日报");
-      const summaryText = await requestAiSummary(userPrompt, targetField);
-      if (!String(summaryText || "").trim()) {
-        throw new Error("模型返回内容为空");
-      }
-
-      post("CW_WEEKLY_SUMMARY_PROGRESS", "保存周报总结");
-      saveWeeklySummary(summaryText, targetField);
-
-      post("CW_WEEKLY_SUMMARY_DONE", "周报总结已生成并触发保存");
-    } catch (error) {
-      post("CW_WEEKLY_SUMMARY_ERROR", "周报总结失败: " + (error && error.message ? error.message : String(error)));
-      throw error;
-    } finally {
-      summaryRunning = false;
-    }
   }
 
   const HOLIDAY_WORKDAY_OVERRIDES = {
@@ -2686,15 +2538,6 @@
       run().catch(function (error) {
         console.error("[cw-batch-work]", error);
       });
-    }
-
-    if (data.type === "CW_WEEKLY_SUMMARY_START") {
-      runWeeklySummary({
-        forceRefresh: Boolean(data.forceRefresh)
-      }).catch(function (error) {
-        console.error("[cw-weekly-summary]", error);
-      });
-      return;
     }
 
     if (!pendingAiRequest || data.requestId !== pendingAiRequest.requestId) {
