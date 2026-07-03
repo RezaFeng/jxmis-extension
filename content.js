@@ -1,4 +1,8 @@
 (function () {
+  if (window.top !== window.self) {
+    return;
+  }
+
   if (window.__cwDailyApprovalContentLoaded) {
     return;
   }
@@ -38,6 +42,23 @@
     script.src = chrome.runtime.getURL(fileName);
     script.async = false;
     (document.head || document.documentElement).appendChild(script);
+  }
+
+  function ensureAutomation() {
+    if (isDailyApprovalPage()) {
+      injectPageScript(DAILY_SCRIPT_ID, "page-batch-approve.js");
+      ensureDailyPanel();
+    }
+
+    if (isWorkReportPage()) {
+      injectPageScript(WORK_SCRIPT_ID, "page-batch-work.js");
+      ensureWorkButton();
+    }
+
+    if (isWeeklyApprovalListPage()) {
+      injectPageScript(WEEKLY_SCRIPT_ID, "page-batch-weekly-approve.js");
+      ensureWeeklyApprovalPanel();
+    }
   }
 
   function isDailyApprovalPage() {
@@ -612,23 +633,14 @@
     }
   });
 
-  injectPageScript(DAILY_SCRIPT_ID, "page-batch-approve.js");
-  injectPageScript(WORK_SCRIPT_ID, "page-batch-work.js");
-  injectPageScript(WEEKLY_SCRIPT_ID, "page-batch-weekly-approve.js");
-  ensureDailyPanel();
-  ensureWorkButton();
-  ensureWeeklyApprovalPanel();
+  ensureAutomation();
 
   window.addEventListener("hashchange", function () {
-    ensureDailyPanel();
-    ensureWorkButton();
-    ensureWeeklyApprovalPanel();
+    ensureAutomation();
   });
 
   const observer = new MutationObserver(function () {
-    ensureDailyPanel();
-    ensureWorkButton();
-    ensureWeeklyApprovalPanel();
+    ensureAutomation();
   });
 
   observer.observe(document.documentElement, {
