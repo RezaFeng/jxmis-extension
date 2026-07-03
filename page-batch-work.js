@@ -53,6 +53,24 @@
     });
   }
 
+  async function waitForWkFormJS(requiredMethods) {
+    const methods = requiredMethods || [];
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 5000) {
+      const api = window.WkFormJS;
+      const ready =
+        api &&
+        methods.every(function (method) {
+          return typeof api[method] === "function";
+        });
+      if (ready) {
+        return api;
+      }
+      await delay(100);
+    }
+    throw new Error("未找到 WkFormJS." + methods.join("/") + "，请等待页面加载完成后重试");
+  }
+
   function getWebapp() {
     const raw = String(window.localStorage.getItem("webapp") || "/jxpmo").trim();
     if (!raw || raw === "/") {
@@ -1310,12 +1328,13 @@
     const tableId = "WkExecutiongrid_1";
     const $table = $("#" + tableId);
     const dt = getNativeNextDataTable($table);
+    const wkForm = await waitForWkFormJS(["addWkPlan"]);
     logWbsStep("native insert start", {
       tableId: tableId,
       incomingRows: rows.length,
       hasTable: Boolean($table.length),
       hasDt: Boolean(dt),
-      hasAddWkPlan: Boolean(window.WkFormJS && typeof window.WkFormJS.addWkPlan === "function")
+      hasAddWkPlan: Boolean(wkForm && typeof wkForm.addWkPlan === "function")
     });
 
     if (!rows.length) {
@@ -1332,17 +1351,13 @@
     if (!$table.length || !dt) {
       throw new Error("未找到下周计划表 WkExecutiongrid_1 或 DataTable");
     }
-    if (!window.WkFormJS || typeof window.WkFormJS.addWkPlan !== "function") {
-      throw new Error("未找到 WkFormJS.addWkPlan，无法使用页面原生新增下周计划");
-    }
-
     const beforeNewData = $table.data("newData") || [];
     const beforeDtCount = dt.rows().data().toArray().length;
     const insertedRows = [];
 
     for (let i = 0; i < rows.length; i += 1) {
       const sourceRow = rows[i];
-      window.WkFormJS.addWkPlan();
+      wkForm.addWkPlan();
       await delay(80);
 
       const $row = $("#" + tableId + " tbody tr.add").last();
@@ -1492,6 +1507,7 @@
   }
 
   async function runBatchWork() {
+    const wkForm = await waitForWkFormJS(["saveAll"]);
     logWbsStep("batch work start", {
       href: window.location.href,
       webapp: getWebapp(),
@@ -1631,7 +1647,7 @@
         updateCount: updateCount,
         modifyData: updateModifyData
       });
-      WkFormJS.saveAll();
+      wkForm.saveAll();
       logWbsStep("current week saveAll called");
       await delay(800);
     } else {
@@ -1713,7 +1729,7 @@
       nextInsertCount: nextPlanResult.insertCount,
       finalModifyData: finalModifyData
     });
-    WkFormJS.saveAll();
+    wkForm.saveAll();
     logWbsStep("executionNext saveAll called");
 
     return {
