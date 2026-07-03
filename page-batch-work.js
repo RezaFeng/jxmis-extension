@@ -2058,15 +2058,14 @@
 
     const afterNewData = $table.data("newData") || [];
     const afterDtCount = dt.rows().data().toArray().length;
-    const storeCountOk = afterNewData.length >= beforeNewData.length + rows.length;
-    const dataTableCountOk = afterDtCount >= beforeDtCount + rows.length;
-    const ok = insertedRows.length === rows.length;
+    const ok =
+      insertedRows.length === rows.length &&
+      afterNewData.length >= beforeNewData.length + rows.length &&
+      afterDtCount >= beforeDtCount + rows.length;
 
     logWbsStep("fast DataTables insert done", {
       tableId: tableId,
       ok: ok,
-      storeCountOk: storeCountOk,
-      dataTableCountOk: dataTableCountOk,
       ms: Math.round(performance.now() - startedAt),
       beforeNewDataCount: beforeNewData.length,
       afterNewDataCount: afterNewData.length,
@@ -2078,7 +2077,7 @@
 
     return {
       ok: ok,
-      reason: ok ? "" : "inserted row count mismatch",
+      reason: ok ? "" : "insert count validation failed",
       insertedRows: insertedRows
     };
   }
