@@ -1998,104 +1998,21 @@
     return null;
   }
 
-  function getNextInsertSample(rows) {
-    return rows.slice(0, 5).map(function (row) {
-      return {
-        extName: row.extName,
-        wbsId: row.wbsId,
-        majorPerson: row.majorPerson,
-        majorPersonName: row.majorPersonName,
-        planDate: row.planDate,
-        planEndTime: row.planEndTime,
-        _add_: row._add_
-      };
-    });
-  }
-
-  function insertRowsWithFastDataTableAdd(rows, $table, dt, tableId) {
-    const startedAt = performance.now();
-    const beforeNewData = $table.data("newData") || [];
-    const beforeDtCount = dt.rows().data().toArray().length;
-    const insertedRows = [];
-
-    if (!DataTablesUtil || !DataTablesUtil.data || typeof DataTablesUtil.data._addRow !== "function") {
-      return {
-        ok: false,
-        reason: "DataTablesUtil.data._addRow unavailable",
-        insertedRows: insertedRows
-      };
-    }
-
-    for (let i = 0; i < rows.length; i += 1) {
-      const sourceRow = rows[i];
-      const rowBeforeNewDataCount = ($table.data("newData") || []).length;
-      const rowBeforeDtCount = dt.rows().data().toArray().length;
-      DataTablesUtil.data._addRow(sourceRow, $table);
-      const added = findNativeAddedRow($table, dt, rowBeforeNewDataCount, rowBeforeDtCount);
-      if (!added || !added.rowData) {
-        const afterNewDataCount = ($table.data("newData") || []).length;
-        const afterDtCount = dt.rows().data().toArray().length;
-        const maybeInserted = afterNewDataCount > rowBeforeNewDataCount || afterDtCount > rowBeforeDtCount;
-        const error = new Error("fast DataTables add did not expose inserted row");
-        error.partialInsertedRows = insertedRows.length + (maybeInserted ? 1 : 0);
-        error.detail = {
-          rowIndex: i,
-          beforeNewDataCount: rowBeforeNewDataCount,
-          afterNewDataCount: afterNewDataCount,
-          beforeDtCount: rowBeforeDtCount,
-          afterDtCount: afterDtCount
-        };
-        throw error;
-      }
-
-      syncNativeNextRow(added.rowData, added.$row, sourceRow);
-      insertedRows.push(added.rowData);
-    }
-
-    if (typeof dt.draw === "function") {
-      dt.draw(false);
-    }
-
-    const afterNewData = $table.data("newData") || [];
-    const afterDtCount = dt.rows().data().toArray().length;
-    const ok =
-      insertedRows.length === rows.length &&
-      afterNewData.length >= beforeNewData.length + rows.length &&
-      afterDtCount >= beforeDtCount + rows.length;
-
-    logWbsStep("fast DataTables insert done", {
-      tableId: tableId,
-      ok: ok,
-      ms: Math.round(performance.now() - startedAt),
-      beforeNewDataCount: beforeNewData.length,
-      afterNewDataCount: afterNewData.length,
-      beforeDtCount: beforeDtCount,
-      afterDtCount: afterDtCount,
-      insertedCount: insertedRows.length,
-      insertedSample: getNextInsertSample(insertedRows)
-    });
-
-    return {
-      ok: ok,
-      reason: ok ? "" : "insert count validation failed",
-      insertedRows: insertedRows
-    };
-  }
-
   async function insertRowsWithNativeAddWkPlan(rows) {
     const tableId = "WkExecutiongrid_1";
     const $table = $("#" + tableId);
     const dt = getNativeNextDataTable($table);
-    logWbsStep("next plan insert start", {
+    const wkForm = await waitForWkFormJS(["addWkPlan"]);
+    logWbsStep("native insert start", {
       tableId: tableId,
       incomingRows: rows.length,
       hasTable: Boolean($table.length),
       hasDt: Boolean(dt),
-      hasFastAddRow: Boolean(DataTablesUtil && DataTablesUtil.data && typeof DataTablesUtil.data._addRow === "function")
+      hasAddWkPlan: Boolean(wkForm && typeof wkForm.addWkPlan === "function")
     });
 
     if (!rows.length) {
-      warnWbsStep("skip next plan insert because generated rows is empty", {
+      warnWbsStep("skip native insert because generated rows is empty", {
         tableId: tableId
       });
       return {
@@ -2108,39 +2025,6 @@
     if (!$table.length || !dt) {
       throw new Error("未找到下周计划表 WkExecutiongrid_1 或 DataTable");
     }
-
-    try {
-      const fastResult = insertRowsWithFastDataTableAdd(rows, $table, dt, tableId);
-      if (fastResult.ok) {
-        return {
-          tableId: tableId,
-          insertedRows: fastResult.insertedRows,
-          modifyData: DataTablesUtil.data.getModifyData(tableId)
-        };
-      }
-      if (fastResult.insertedRows.length > 0) {
-        const error = new Error("fast DataTables insert validation failed after rows inserted");
-        error.partialInsertedRows = fastResult.insertedRows.length;
-        throw error;
-      }
-      warnWbsStep("fast DataTables insert unavailable, fallback to native addWkPlan", {
-        reason: fastResult.reason,
-        insertedCount: fastResult.insertedRows.length
-      });
-    } catch (error) {
-      const partialInsertedRows = Number(error && error.partialInsertedRows) || 0;
-      warnWbsStep("fast DataTables insert failed", {
-        message: error && error.message ? error.message : String(error),
-        partialInsertedRows: partialInsertedRows,
-        detail: error && error.detail
-      });
-      if (partialInsertedRows > 0) {
-        throw error;
-      }
-    }
-
-    const wkForm = await waitForWkFormJS(["addWkPlan"]);
-    const nativeStartedAt = performance.now();
     const beforeNewData = $table.data("newData") || [];
     const beforeDtCount = dt.rows().data().toArray().length;
     const insertedRows = [];
@@ -2186,14 +2070,23 @@
     const modifyData = DataTablesUtil.data.getModifyData(tableId);
     logWbsStep("native insert done", {
       tableId: tableId,
-      ms: Math.round(performance.now() - nativeStartedAt),
       beforeNewDataCount: beforeNewData.length,
       afterNewDataCount: afterNewData.length,
       beforeDtCount: beforeDtCount,
       afterDtCount: afterDtCount,
       insertedCount: insertedRows.length,
       modifyData: modifyData,
-      insertedSample: getNextInsertSample(insertedRows)
+      insertedSample: insertedRows.slice(0, 5).map(function (row) {
+        return {
+          extName: row.extName,
+          wbsId: row.wbsId,
+          majorPerson: row.majorPerson,
+          majorPersonName: row.majorPersonName,
+          planDate: row.planDate,
+          planEndTime: row.planEndTime,
+          _add_: row._add_
+        };
+      })
     });
 
     return {
