@@ -16,6 +16,7 @@
   - Fills `WkExecutiongrid`
   - Uses approved daily report `realHour` totals for current-week actual hours, matched by WBS and owner, with planned hours as fallback
   - Uses the latest matched approved daily report `realFinishRate` for current project completion progress, with `100` as fallback
+  - Uses the latest matched approved daily report `submissionTime` for current-week actual completion time, with WBS planned end time as fallback
   - Generates next-week WBS plan rows into `executionNext` before saving
   - Queries `ProjectPlanDetailService/query` with the maximum page length for next-week WBS candidates
   - Resolves next week from Monday to Sunday and applies built-in China holiday/workday overrides

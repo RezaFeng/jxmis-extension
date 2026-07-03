@@ -579,6 +579,7 @@
         realHour: realHour,
         hasRealHour: realHour > 0,
         realFinishRate: formatRateValue(row && row.realFinishRate),
+        dailyEndTime: normalizeMatchText(row && (row.submissionTime || row.realEndTime || row.createTime)),
         sortTime: getDailySortTime(row),
         status: status || "未返回状态"
       };
@@ -688,6 +689,7 @@
       nameCounts: buildWeeklyNameMatchCounts(weeklyRows),
       usedHourWeeklyKeys: new Set(),
       usedFinishRateWeeklyKeys: new Set(),
+      usedEndTimeWeeklyKeys: new Set(),
       usedDailyKeys: new Set()
     };
   }
@@ -905,6 +907,85 @@
       value: latest.realFinishRate,
       source: source,
       dailyFinishRate: latest.realFinishRate,
+      matchedDailyRows: matches.length,
+      latestDailyDate: latest.date
+    };
+  }
+
+  function resolveDailyRealEndTime(rowData, fallbackValue, resolver) {
+    const fallback = normalizeMatchText(fallbackValue);
+    if (!resolver || !resolver.available) {
+      return {
+        value: fallback,
+        source: "planEndTimeFallback",
+        reason: resolver && resolver.error ? "dailyFetchFailed" : "dailyResolverUnavailable"
+      };
+    }
+
+    const personKey = getWeeklyPersonKey(rowData);
+    if (!personKey) {
+      return {
+        value: fallback,
+        source: "planEndTimeFallback",
+        reason: "weeklyPersonMissing"
+      };
+    }
+
+    const wbsId = getWeeklyWbsId(rowData);
+    let weeklyKey = "";
+    let matches = [];
+    let fallbackReason = "noDailyMatch";
+    let source = "dailyExact";
+    if (wbsId) {
+      weeklyKey = personKey + "|wbs:" + wbsId;
+      if (resolver.usedEndTimeWeeklyKeys.has(weeklyKey)) {
+        return {
+          value: fallback,
+          source: "planEndTimeFallback",
+          reason: "duplicateWeeklyWbsPerson"
+        };
+      }
+      matches = findDailyMatchesByWbs(rowData, resolver);
+    }
+
+    if (!matches.length) {
+      const nameMatch = findDailyMatchesByName(rowData, resolver);
+      weeklyKey = nameMatch.key;
+      matches = nameMatch.matches;
+      fallbackReason = nameMatch.reason || "noDailyMatch";
+      source = "dailyNameFallback";
+      if (weeklyKey && resolver.usedEndTimeWeeklyKeys.has(weeklyKey)) {
+        return {
+          value: fallback,
+          source: "planEndTimeFallback",
+          reason: "duplicateWeeklyNamePerson"
+        };
+      }
+    }
+
+    const validMatches = matches.filter(function (row) {
+      return Boolean(row.dailyEndTime);
+    });
+    if (!validMatches.length) {
+      return {
+        value: fallback,
+        source: "planEndTimeFallback",
+        reason: matches.length ? "invalidDailyEndTime" : fallbackReason
+      };
+    }
+
+    validMatches.sort(function (a, b) {
+      return b.sortTime - a.sortTime;
+    });
+    const latest = validMatches[0];
+    if (weeklyKey) {
+      resolver.usedEndTimeWeeklyKeys.add(weeklyKey);
+    }
+    resolver.usedDailyKeys.add(latest.key);
+    return {
+      value: latest.dailyEndTime,
+      source: source,
+      dailyEndTime: latest.dailyEndTime,
       matchedDailyRows: matches.length,
       latestDailyDate: latest.date
     };
@@ -2185,6 +2266,7 @@
             taskNames: row.taskNames,
             realHour: row.realHour,
             realFinishRate: row.realFinishRate,
+            dailyEndTime: row.dailyEndTime,
             status: row.status
           };
         })
@@ -2218,6 +2300,13 @@
       return true;
     }
 
+    function getColumnInputValue(tr, colIndex) {
+      const input = tr && tr.cells && tr.cells[colIndex]
+        ? tr.cells[colIndex].querySelector("input,textarea,select")
+        : null;
+      return input && input.value != null ? String(input.value).trim() : "";
+    }
+
     dataArr.forEach(function (rowData, i) {
       if (!rowData) {
         return;
@@ -2227,11 +2316,16 @@
       const planDate = rowData.planDate != null && rowData.planDate !== ""
         ? String(rowData.planDate)
         : "";
+      const planEndTime = normalizeMatchText(rowData.planEndTime) ||
+        getColumnInputValue(tr, 7) ||
+        normalizeMatchText(rowData.realEndTime);
       const actualTime = resolveDailyActualHours(rowData, planDate, dailyActualResolver);
       const finishRate = resolveDailyFinishRate(rowData, dailyActualResolver);
+      const realEndTime = resolveDailyRealEndTime(rowData, planEndTime, dailyActualResolver);
 
       const nextValues = {
         finishRate: finishRate.value,
+        realEndTime: realEndTime.value,
         realTime: actualTime.value,
         isNeedDo: "0",
         isState: "50",
@@ -2240,6 +2334,7 @@
 
       const hasChanged =
         String(rowData.finishRate ?? "") !== nextValues.finishRate ||
+        String(rowData.realEndTime ?? "") !== nextValues.realEndTime ||
         String(rowData.realTime ?? "") !== nextValues.realTime ||
         String(rowData.isNeedDo ?? "") !== nextValues.isNeedDo ||
         String(rowData.isState ?? "") !== nextValues.isState ||
@@ -2260,6 +2355,11 @@
           finishRateFallbackReason: finishRate.reason || "",
           dailyFinishRate: finishRate.dailyFinishRate || "",
           finishRateDailyDate: finishRate.latestDailyDate || "",
+          resolvedRealEndTime: nextValues.realEndTime,
+          realEndTimeSource: realEndTime.source,
+          realEndTimeFallbackReason: realEndTime.reason || "",
+          dailyEndTime: realEndTime.dailyEndTime || "",
+          realEndTimeDailyDate: realEndTime.latestDailyDate || "",
           skipped: true
         });
         return;
@@ -2268,6 +2368,7 @@
       Object.assign(rowData, nextValues);
 
       rowData["6"] = nextValues.finishRate;
+      rowData["7"] = nextValues.realEndTime;
       rowData["10"] = nextValues.realTime;
       rowData["12"] = nextValues.isNeedDo;
       rowData["13"] = nextValues.memo;
@@ -2275,6 +2376,7 @@
 
       if (tr && tr.cells) {
         setInputValue(tr.cells[6] && tr.cells[6].querySelector("input"), nextValues.finishRate);
+        setInputValue(tr.cells[7] && tr.cells[7].querySelector("input"), nextValues.realEndTime);
         setInputValue(tr.cells[10] && tr.cells[10].querySelector("input"), nextValues.realTime);
         setSelectValue(tr.cells[12] && tr.cells[12].querySelector("select"), nextValues.isNeedDo);
         setInputValue(tr.cells[13] && tr.cells[13].querySelector("input,textarea"), nextValues.memo);
@@ -2294,6 +2396,7 @@
         extId: rowData.extId,
         extName: rowData.extName,
         finishRate: rowData.finishRate,
+        realEndTime: rowData.realEndTime,
         realTime: rowData.realTime,
         planDate: planDate,
         realTimeSource: actualTime.source,
@@ -2304,6 +2407,10 @@
         finishRateFallbackReason: finishRate.reason || "",
         dailyFinishRate: finishRate.dailyFinishRate || "",
         finishRateDailyDate: finishRate.latestDailyDate || "",
+        realEndTimeSource: realEndTime.source,
+        realEndTimeFallbackReason: realEndTime.reason || "",
+        dailyEndTime: realEndTime.dailyEndTime || "",
+        realEndTimeDailyDate: realEndTime.latestDailyDate || "",
         isNeedDo: rowData.isNeedDo,
         isState: rowData.isState
       });
@@ -2324,6 +2431,7 @@
             taskNames: row.taskNames,
             realHour: row.realHour,
             realFinishRate: row.realFinishRate,
+            dailyEndTime: row.dailyEndTime,
             status: row.status
           };
         })
