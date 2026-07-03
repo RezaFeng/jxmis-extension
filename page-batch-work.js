@@ -835,6 +835,8 @@
           detailName: row && row.detailName,
           majorPerson: row && row.majorPerson,
           roleName: row && row.roleName,
+          finishStatus: row && row.finishStatus,
+          finishStatusDesc: row && row.finishStatusDesc,
           duration: row && row.duration,
           planStartTime: row && row.planStartTime,
           planEndTime: row && row.planEndTime
@@ -998,6 +1000,11 @@
     return toNumber(row && row.duration) > 0;
   }
 
+  function isUnselectableWbsStatus(row) {
+    const status = String((row && row.finishStatus) || "").trim();
+    return status === "40" || status === "50";
+  }
+
   function splitHours(totalHours) {
     const chunks = [];
     let remaining = Math.max(0, Math.floor(totalHours));
@@ -1086,6 +1093,7 @@
       outsideNextWeek: 0,
       duplicate: 0,
       tentative: 0,
+      unselectableStatusBypassed: 0,
       noOwnerAndNoDuration: 0,
       noPerson: 0,
       manualPerson: 0,
@@ -1156,6 +1164,10 @@
       }
 
       const tentative = isTentativeOwner(wbs);
+      const unselectableStatus = isUnselectableWbsStatus(wbs);
+      if (unselectableStatus) {
+        stats.unselectableStatusBypassed += 1;
+      }
       const person = getWbsOwnerId(wbs);
       if (tentative && !hasWbsDuration(wbs)) {
         stats.noOwnerAndNoDuration += 1;
@@ -1206,6 +1218,9 @@
             owner: "manualPerson",
             roleName: wbs && wbs.roleName,
             roleId: wbs && wbs.roleId,
+            finishStatus: wbs && wbs.finishStatus,
+            finishStatusDesc: wbs && wbs.finishStatusDesc,
+            bypassSelectableStatus: unselectableStatus,
             majorPerson: wbs && wbs.majorPerson,
             planDate: "",
             chunks: [""],
@@ -1263,6 +1278,9 @@
             owner: tentative ? "待定" : "",
             roleName: wbs && wbs.roleName,
             roleId: wbs && wbs.roleId,
+            finishStatus: wbs && wbs.finishStatus,
+            finishStatusDesc: wbs && wbs.finishStatusDesc,
+            bypassSelectableStatus: unselectableStatus,
             intersectionWorkdays: intersectionWorkdays,
             capacity: capacity,
             usedBefore: capacity - remaining,
