@@ -14,9 +14,11 @@
   - Detects route `#/jxpmo/project/WkReportService/id/<dynamic-id>?`
   - Injects `批量报工` next to `重新计算`
   - Fills `WkExecutiongrid`
+  - Reuses one weekly daily-report query for current-week WBS filling and weekly summary generation
   - Uses approved daily report `realHour` totals for current-week actual hours, matched by WBS and owner, with planned hours as fallback
   - Uses the latest matched approved daily report `realFinishRate` for current project completion progress, with `100` as fallback
   - Uses the latest matched approved daily report `submissionTime` for current-week actual completion time, with WBS planned end time as fallback
+  - Generates the weekly summary before next-week WBS insertion and saves current-week changes plus `本周执行情况` together
   - Generates next-week WBS plan rows into `executionNext` before saving
   - Queries `ProjectPlanDetailService/query` with the maximum page length for next-week WBS candidates
   - Resolves next week from Monday to Sunday and applies built-in China holiday/workday overrides
@@ -34,6 +36,7 @@
   - Caches generated daily-task JSON per weekly report; hold `Shift` while clicking `总结周报` to refresh
   - Streams AI summary into `本周执行情况`
   - Triggers `WkFormJS.saveAll()` after summary generation
+  - In batch work mode, uses the already fetched daily-report rows instead of requesting task details again
 - AI weekly summary configuration
   - Click the extension icon to open the popup
   - Supports OpenAI-compatible `baseUrl`, API key, model selection, and editable system prompt

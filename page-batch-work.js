@@ -350,6 +350,16 @@
     });
   }
 
+  function createWeeklyTaskDetailsFromRows(rows, context) {
+    const seen = new Set();
+    const result = [];
+    appendWeeklyTaskRows(rows, context, seen, result);
+    result.sort(function (a, b) {
+      return (a.date + a.userFullname).localeCompare(b.date + b.userFullname, "zh-CN");
+    });
+    return result;
+  }
+
   function pageHasRowsBeforeWeek(rows, context) {
     return rows.some(function (row) {
       const dateSource = (row && (row.submissionTime || row.realEndTime || row.createTime)) || "";
@@ -365,8 +375,8 @@
   }
 
   async function fetchWeeklyTaskDetails(context) {
-    const seen = new Set();
     const result = [];
+    const seen = new Set();
 
     const firstData = await fetchTaskDetailPage(context.projectId, 1);
     const firstRows = Array.isArray(firstData && firstData.rows) ? firstData.rows : [];
@@ -594,6 +604,7 @@
   async function fetchWeeklyDailyActualRows(context) {
     const seen = new Set();
     const result = [];
+    const rawRows = [];
     const stats = {
       scanned: 0,
       usable: 0,
@@ -606,12 +617,14 @@
 
     const firstData = await fetchTaskDetailPage(context.projectId, 1);
     const firstRows = Array.isArray(firstData && firstData.rows) ? firstData.rows : [];
+    rawRows.push.apply(rawRows, firstRows);
     appendWeeklyDailyActualRows(firstRows, context, seen, result, stats);
 
     const pageCount = getTaskDetailPageCount(firstData);
     if (!firstRows.length || pageCount <= 1 || pageHasRowsBeforeWeek(firstRows, context)) {
       return {
         rows: result,
+        rawRows: rawRows,
         stats: stats
       };
     }
@@ -645,6 +658,7 @@
         return a.page - b.page;
       }).forEach(function (item) {
         const rows = Array.isArray(item.data && item.data.rows) ? item.data.rows : [];
+        rawRows.push.apply(rawRows, rows);
         appendWeeklyDailyActualRows(rows, context, seen, result, stats);
         if (pageHasRowsBeforeWeek(rows, context)) {
           shouldStop = true;
@@ -658,6 +672,7 @@
 
     return {
       rows: result,
+      rawRows: rawRows,
       stats: stats
     };
   }
@@ -1148,8 +1163,12 @@
     });
   }
 
-  function saveWeeklySummary(summaryText, targetField) {
+  function saveWeeklySummary(summaryText, targetField, options) {
     setFieldValue(targetField, summaryText);
+
+    if (options && options.skipSave) {
+      return;
+    }
 
     if (window.WkFormJS && typeof window.WkFormJS.saveAll === "function") {
       window.WkFormJS.saveAll();
@@ -1157,6 +1176,49 @@
     }
 
     throw new Error("未找到 WkFormJS.saveAll，无法自动保存周报");
+  }
+
+  async function generateWeeklySummaryWithTasks(context, dailyTasks, targetField, options) {
+    if (!dailyTasks.length) {
+      throw new Error("未找到本周 taskDetail 日报内容");
+    }
+
+    const taskCount = dailyTasks.length;
+    const progressType = options && options.progressType ? options.progressType : "CW_WEEKLY_SUMMARY_PROGRESS";
+    const saveSummary = !(options && options.skipSave);
+    const cacheKey = createSummaryCacheKey(context);
+    const userPrompt = createUserPrompt(context, dailyTasks);
+
+    await setSummaryCache(cacheKey, {
+      cacheKey: cacheKey,
+      wkId: context.wkId,
+      projectId: context.projectId,
+      projectName: context.projectName,
+      weekStart: context.weekStart,
+      weekEnd: context.weekEnd,
+      dailyTaskCount: taskCount,
+      userPrompt: userPrompt,
+      cachedAt: new Date().toISOString()
+    }).catch(function (error) {
+      console.warn("[cw-weekly-summary] cache write failed", error);
+    });
+
+    post(progressType, "请求大模型，总计 " + taskCount + " 条日报");
+    const summaryText = await requestAiSummary(userPrompt, targetField);
+    if (!String(summaryText || "").trim()) {
+      throw new Error("模型返回内容为空");
+    }
+
+    post(progressType, saveSummary ? "保存周报总结" : "回填周报总结，等待批量报工统一保存");
+    saveWeeklySummary(summaryText, targetField, {
+      skipSave: !saveSummary
+    });
+
+    return {
+      summaryText: summaryText,
+      taskCount: taskCount,
+      userPrompt: userPrompt
+    };
   }
 
   async function runWeeklySummary(options) {
@@ -1206,27 +1268,18 @@
           "拉取 " + context.weekStart + " 至 " + context.weekEnd + " 的日报"
         );
         dailyTasks = await fetchWeeklyTaskDetails(context);
-        if (!dailyTasks.length) {
-          throw new Error("未找到本周 taskDetail 日报内容");
-        }
-
-        userPrompt = createUserPrompt(context, dailyTasks);
-        await setSummaryCache(cacheKey, {
-          cacheKey: cacheKey,
-          wkId: context.wkId,
-          projectId: context.projectId,
-          projectName: context.projectName,
-          weekStart: context.weekStart,
-          weekEnd: context.weekEnd,
-          dailyTaskCount: dailyTasks.length,
-          userPrompt: userPrompt,
-          cachedAt: new Date().toISOString()
-        }).catch(function (error) {
-          console.warn("[cw-weekly-summary] cache write failed", error);
+        await generateWeeklySummaryWithTasks(context, dailyTasks, targetField, {
+          progressType: "CW_WEEKLY_SUMMARY_PROGRESS"
         });
+        post("CW_WEEKLY_SUMMARY_DONE", "周报总结已生成并触发保存");
+        return;
       }
 
       const taskCount = dailyTasks ? dailyTasks.length : Number(cache && cache.dailyTaskCount) || 0;
+      if (!userPrompt) {
+        throw new Error("未找到本周 taskDetail 日报内容");
+      }
+
       post("CW_WEEKLY_SUMMARY_PROGRESS", "请求大模型，总计 " + taskCount + " 条日报");
       const summaryText = await requestAiSummary(userPrompt, targetField);
       if (!String(summaryText || "").trim()) {
@@ -2250,13 +2303,19 @@
       available: false,
       error: "notLoaded"
     };
+    let dailyActualResult = {
+      rows: [],
+      rawRows: [],
+      stats: null
+    };
     post("CW_BATCH_WORK_RUNNING", "查询本周日报实际工时");
     try {
-      const dailyActualResult = await fetchWeeklyDailyActualRows(context);
+      dailyActualResult = await fetchWeeklyDailyActualRows(context);
       dailyActualResolver = createDailyActualResolver(dailyActualResult.rows, dataArr);
       logWbsStep("weekly daily actual hours loaded", {
         stats: dailyActualResult.stats,
         usableRows: dailyActualResult.rows.length,
+        rawRows: dailyActualResult.rawRows.length,
         sample: dailyActualResult.rows.slice(0, 10).map(function (row) {
           return {
             date: row.date,
@@ -2451,16 +2510,48 @@
       modifyData: updateModifyData
     });
 
-    if (updateCount > 0) {
-      logWbsStep("current week saveAll start", {
+    let summaryResult = null;
+    post("CW_BATCH_WORK_RUNNING", "基于本次日报数据生成周报总结");
+    try {
+      const targetField = findCurrWkResultField();
+      if (!targetField) {
+        throw new Error("未找到“本周执行情况”文本框");
+      }
+      setFieldValue(targetField, "");
+      const summaryRows = Array.isArray(dailyActualResult.rawRows) ? dailyActualResult.rawRows : [];
+      const dailyTasks = createWeeklyTaskDetailsFromRows(summaryRows, context);
+      logWbsStep("weekly summary task details extracted from shared daily rows", {
+        rawRows: summaryRows.length,
+        taskCount: dailyTasks.length,
+        sample: dailyTasks.slice(0, 10)
+      });
+      summaryResult = await generateWeeklySummaryWithTasks(context, dailyTasks, targetField, {
+        progressType: "CW_BATCH_WORK_RUNNING",
+        skipSave: true
+      });
+      logWbsStep("weekly summary generated before current week save", {
+        taskCount: summaryResult.taskCount,
+        summaryLength: String(summaryResult.summaryText || "").length
+      });
+    } catch (error) {
+      warnWbsStep("weekly summary generation failed before current week save", {
+        error: error && error.message ? error.message : String(error)
+      });
+      throw error;
+    }
+
+    const shouldSaveCurrentWeek = updateCount > 0 || Boolean(summaryResult && summaryResult.summaryText);
+    if (shouldSaveCurrentWeek) {
+      logWbsStep("current week saveAll start after summary", {
         updateCount: updateCount,
+        weeklySummaryGenerated: Boolean(summaryResult && summaryResult.summaryText),
         modifyData: updateModifyData
       });
       wkForm.saveAll();
-      logWbsStep("current week saveAll called");
+      logWbsStep("current week saveAll called after summary");
       await delay(800);
     } else {
-      logWbsStep("skip current week save because no update data");
+      logWbsStep("skip current week save because no update data and no weekly summary");
     }
 
     post("CW_BATCH_WORK_RUNNING", "生成下周 WBS 计划明细");
@@ -2479,7 +2570,8 @@
       return {
         updateCount: 0,
         nextInsertCount: 0,
-        currentSaveTriggered: false,
+        currentSaveTriggered: shouldSaveCurrentWeek,
+        weeklySummaryGenerated: Boolean(summaryResult && summaryResult.summaryText),
         result: result,
         skipped: true
       };
@@ -2496,7 +2588,8 @@
         updateCount: updateCount,
         nextInsertCount: nextPlanResult.insertCount,
         missingMajorPersonCount: nextPlanResult.missingMajorPersonCount,
-        currentSaveTriggered: updateCount > 0,
+        currentSaveTriggered: shouldSaveCurrentWeek,
+        weeklySummaryGenerated: Boolean(summaryResult && summaryResult.summaryText),
         nextPlan: nextPlanResult,
         result: result,
         skipped: false,
@@ -2512,7 +2605,8 @@
       return {
         updateCount: updateCount,
         nextInsertCount: 0,
-        currentSaveTriggered: updateCount > 0,
+        currentSaveTriggered: shouldSaveCurrentWeek,
+        weeklySummaryGenerated: Boolean(summaryResult && summaryResult.summaryText),
         nextPlan: nextPlanResult,
         result: result,
         skipped: false,
@@ -2531,7 +2625,8 @@
     return {
       updateCount: updateCount,
       nextInsertCount: nextPlanResult.insertCount,
-      currentSaveTriggered: updateCount > 0,
+      currentSaveTriggered: shouldSaveCurrentWeek,
+      weeklySummaryGenerated: Boolean(summaryResult && summaryResult.summaryText),
       nextPlan: nextPlanResult,
       result: result,
       skipped: false,
@@ -2552,7 +2647,11 @@
       const result = await runBatchWork();
 
       if (result.skipped) {
-        post("CW_BATCH_WORK_DONE", "没有可提交的 update/insert 数据");
+        if (result.currentSaveTriggered) {
+          post("CW_BATCH_WORK_DONE", "本周报工/周报总结已保存；没有可插入的下周计划");
+        } else {
+          post("CW_BATCH_WORK_DONE", "没有可提交的 update/insert 数据");
+        }
         return;
       }
 
