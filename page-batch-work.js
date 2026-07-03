@@ -986,6 +986,18 @@
     return String((row && (row.roleName || row.majorPersonName || row.majorPerson)) || "").trim() === "待定";
   }
 
+  function getWbsOwnerId(row) {
+    return String((row && (row.roleId || row.majorPerson)) || "").trim();
+  }
+
+  function getWbsOwnerName(row) {
+    return String((row && (row.roleName || row.majorPersonName)) || "").trim();
+  }
+
+  function hasWbsDuration(row) {
+    return toNumber(row && row.duration) > 0;
+  }
+
   function splitHours(totalHours) {
     const chunks = [];
     let remaining = Math.max(0, Math.floor(totalHours));
@@ -1000,11 +1012,12 @@
   function createNextExecutionRow(wbs, hours, context, options) {
     const manualPerson = Boolean(options && options.manualPerson);
     const tentative = isTentativeOwner(wbs);
-    const ownerId = tentative || manualPerson ? "" : String((wbs && wbs.majorPerson) || "").trim();
-    const ownerName = tentative || manualPerson ? "" : String((wbs && (wbs.roleName || wbs.majorPersonName)) || "").trim();
+    const ownerId = tentative || manualPerson ? "" : getWbsOwnerId(wbs);
+    const ownerName = tentative || manualPerson ? "" : getWbsOwnerName(wbs);
     const detailName = String((wbs && wbs.detailName) || "").trim();
     const creator = context.prodPerson || context.projectManager || "";
     const creatorName = context.prodPersonName || context.projectManagerName || "";
+    const planEndTime = String((options && options.planEndTime) || (wbs && wbs.planEndTime) || "");
 
     return {
       isProjectType: "",
@@ -1047,7 +1060,7 @@
       actualDate: "",
       wbsId: String((wbs && wbs.detailId) || ""),
       wkId: "",
-      planEndTime: String((wbs && wbs.planEndTime) || ""),
+      planEndTime: planEndTime,
       projectAttribute: "",
       isConfirmCompletion: "",
       projectName: context.projectName,
@@ -1073,6 +1086,7 @@
       outsideNextWeek: 0,
       duplicate: 0,
       tentative: 0,
+      noOwnerAndNoDuration: 0,
       noPerson: 0,
       manualPerson: 0,
       zeroAssignable: 0,
@@ -1124,7 +1138,7 @@
       }
 
       const key = createDedupKey({
-        majorPerson: isTentativeOwner(wbs) ? "" : wbs.majorPerson,
+        majorPerson: isTentativeOwner(wbs) ? "" : getWbsOwnerId(wbs),
         wbsId: detailId,
         extName: detailName
       });
@@ -1143,7 +1157,9 @@
 
       const tentative = isTentativeOwner(wbs);
       if (tentative) {
-        generated.push(createNextExecutionRow(wbs, "", context));
+        generated.push(createNextExecutionRow(wbs, "", context, {
+          planEndTime: nextWeek.endText + " 17:30:00"
+        }));
         dedup.add(key);
         stats.tentative += 1;
         stats.generatedTasks += 1;
@@ -1160,11 +1176,28 @@
         return;
       }
 
-      const person = String((wbs && wbs.majorPerson) || "").trim();
+      const person = getWbsOwnerId(wbs);
       if (!person) {
+        if (!hasWbsDuration(wbs)) {
+          stats.noOwnerAndNoDuration += 1;
+          if (skippedSamples.length < 5) {
+            skippedSamples.push({
+              reason: "noOwnerAndNoDuration",
+              detailId: detailId,
+              detailName: detailName,
+              roleName: wbs && wbs.roleName,
+              roleId: wbs && wbs.roleId,
+              majorPerson: wbs && wbs.majorPerson,
+              duration: wbs && wbs.duration
+            });
+          }
+          return;
+        }
+
         stats.noPerson += 1;
         generated.push(createNextExecutionRow(wbs, "", context, {
-          manualPerson: true
+          manualPerson: true,
+          planEndTime: nextWeek.endText + " 17:30:00"
         }));
         dedup.add(key);
         stats.manualPerson += 1;
@@ -1176,6 +1209,7 @@
             detailName: detailName,
             owner: "manualPerson",
             roleName: wbs && wbs.roleName,
+            roleId: wbs && wbs.roleId,
             majorPerson: wbs && wbs.majorPerson,
             planDate: "",
             chunks: [""],
@@ -1212,7 +1246,9 @@
       }
 
       chunks.forEach(function (hours) {
-        generated.push(createNextExecutionRow(wbs, hours, context));
+        generated.push(createNextExecutionRow(wbs, hours, context, {
+          planEndTime: nextWeek.endText + " 17:30:00"
+        }));
       });
       if (assignableHours > 0) {
         usedHoursByPerson[person] = (usedHoursByPerson[person] || 0) + assignableHours;
@@ -1225,6 +1261,7 @@
             detailName: detailName,
             person: person,
             roleName: wbs && wbs.roleName,
+            roleId: wbs && wbs.roleId,
             intersectionWorkdays: intersectionWorkdays,
             capacity: capacity,
             usedBefore: capacity - remaining,
