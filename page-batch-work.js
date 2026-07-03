@@ -439,6 +439,40 @@
     return (row && (row.submissionTime || row.realEndTime || row.createTime)) || "";
   }
 
+  function parseDateTime(value) {
+    const match = String(value || "").match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+    if (!match) {
+      return null;
+    }
+    return new Date(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      Number(match[4] || 0),
+      Number(match[5] || 0),
+      Number(match[6] || 0)
+    );
+  }
+
+  function getDailySortTime(row) {
+    const source = getDailyDateSource(row);
+    const date = parseDateTime(source);
+    return date ? date.getTime() : 0;
+  }
+
+  function formatRateValue(value) {
+    const text = String(value == null ? "" : value).replace("%", "").trim();
+    if (!text) {
+      return "";
+    }
+    const number = Number(text);
+    if (!Number.isFinite(number)) {
+      return "";
+    }
+    const rounded = Math.round(number * 100) / 100;
+    return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  }
+
   function getWeeklyPersonKey(rowData) {
     const personId = normalizeMatchText(rowData && rowData.majorPerson);
     if (personId) {
@@ -512,10 +546,10 @@
         return;
       }
 
-      const realHour = toNumber(row && row.realHour);
+      const rawRealHour = row && row.realHour;
+      const realHour = toNumber(rawRealHour);
       if (realHour <= 0) {
         stats.skippedNoRealHour += 1;
-        return;
       }
 
       const date = formatDate(parseDate(dateSource));
@@ -543,6 +577,9 @@
         userFullname: normalizeMatchText(row && row.userFullname),
         taskNames: getDailyTaskNames(row),
         realHour: realHour,
+        hasRealHour: realHour > 0,
+        realFinishRate: formatRateValue(row && row.realFinishRate),
+        sortTime: getDailySortTime(row),
         status: status || "未返回状态"
       };
       if (!item.wbsId) {
@@ -649,8 +686,53 @@
       available: true,
       dailyRows: dailyRows,
       nameCounts: buildWeeklyNameMatchCounts(weeklyRows),
-      usedWeeklyKeys: new Set(),
+      usedHourWeeklyKeys: new Set(),
+      usedFinishRateWeeklyKeys: new Set(),
       usedDailyKeys: new Set()
+    };
+  }
+
+  function findDailyMatchesByWbs(rowData, resolver) {
+    const wbsId = getWeeklyWbsId(rowData);
+    if (!wbsId) {
+      return [];
+    }
+    return resolver.dailyRows.filter(function (row) {
+      return row.wbsId === wbsId && dailyPersonMatches(row.raw, rowData);
+    });
+  }
+
+  function findDailyMatchesByName(rowData, resolver) {
+    const personKey = getWeeklyPersonKey(rowData);
+    const names = getWeeklyTaskNames(rowData);
+    for (let i = 0; i < names.length; i += 1) {
+      const name = names[i];
+      const weeklyNameKey = personKey + "|name:" + name;
+      if ((resolver.nameCounts[weeklyNameKey] || 0) > 1) {
+        return {
+          key: weeklyNameKey,
+          matches: [],
+          reason: "ambiguousNameMatch"
+        };
+      }
+
+      const matches = resolver.dailyRows.filter(function (row) {
+        return !row.wbsId &&
+          row.taskNames.indexOf(name) >= 0 &&
+          dailyPersonMatches(row.raw, rowData);
+      });
+      if (matches.length) {
+        return {
+          key: weeklyNameKey,
+          matches: matches,
+          reason: ""
+        };
+      }
+    }
+    return {
+      key: "",
+      matches: [],
+      reason: "noDailyMatch"
     };
   }
 
@@ -675,7 +757,7 @@
     const wbsId = getWeeklyWbsId(rowData);
     if (wbsId) {
       const weeklyKey = personKey + "|wbs:" + wbsId;
-      if (resolver.usedWeeklyKeys.has(weeklyKey)) {
+      if (resolver.usedHourWeeklyKeys.has(weeklyKey)) {
         return {
           value: planDate,
           source: "planFallback",
@@ -683,14 +765,12 @@
         };
       }
 
-      const matches = resolver.dailyRows.filter(function (row) {
-        return row.wbsId === wbsId && dailyPersonMatches(row.raw, rowData);
-      });
+      const matches = findDailyMatchesByWbs(rowData, resolver);
       const total = matches.reduce(function (sum, row) {
         return sum + row.realHour;
       }, 0);
       if (total > 0) {
-        resolver.usedWeeklyKeys.add(weeklyKey);
+        resolver.usedHourWeeklyKeys.add(weeklyKey);
         matches.forEach(function (row) {
           resolver.usedDailyKeys.add(row.key);
         });
@@ -701,45 +781,46 @@
           matchedDailyRows: matches.length
         };
       }
-    }
-
-    const names = getWeeklyTaskNames(rowData);
-    for (let i = 0; i < names.length; i += 1) {
-      const name = names[i];
-      const weeklyNameKey = personKey + "|name:" + name;
-      if ((resolver.nameCounts[weeklyNameKey] || 0) > 1) {
+      if (matches.length) {
         return {
           value: planDate,
           source: "planFallback",
-          reason: "ambiguousNameMatch"
+          reason: "matchedButNoRealHour",
+          matchedDailyRows: matches.length
         };
       }
-      if (resolver.usedWeeklyKeys.has(weeklyNameKey)) {
+    }
+
+    const nameMatch = findDailyMatchesByName(rowData, resolver);
+    if (nameMatch.key) {
+      if (resolver.usedHourWeeklyKeys.has(nameMatch.key)) {
         return {
           value: planDate,
           source: "planFallback",
           reason: "duplicateWeeklyNamePerson"
         };
       }
-
-      const matches = resolver.dailyRows.filter(function (row) {
-        return !row.wbsId &&
-          row.taskNames.indexOf(name) >= 0 &&
-          dailyPersonMatches(row.raw, rowData);
-      });
-      const total = matches.reduce(function (sum, row) {
+      const total = nameMatch.matches.reduce(function (sum, row) {
         return sum + row.realHour;
       }, 0);
       if (total > 0) {
-        resolver.usedWeeklyKeys.add(weeklyNameKey);
-        matches.forEach(function (row) {
+        resolver.usedHourWeeklyKeys.add(nameMatch.key);
+        nameMatch.matches.forEach(function (row) {
           resolver.usedDailyKeys.add(row.key);
         });
         return {
           value: formatHourValue(total),
           source: "dailyNameFallback",
           dailyRealHour: total,
-          matchedDailyRows: matches.length
+          matchedDailyRows: nameMatch.matches.length
+        };
+      }
+      if (nameMatch.matches.length) {
+        return {
+          value: planDate,
+          source: "planFallback",
+          reason: "matchedButNoRealHour",
+          matchedDailyRows: nameMatch.matches.length
         };
       }
     }
@@ -747,7 +828,85 @@
     return {
       value: planDate,
       source: "planFallback",
-      reason: "noDailyMatch"
+      reason: nameMatch.reason || "noDailyMatch"
+    };
+  }
+
+  function resolveDailyFinishRate(rowData, resolver) {
+    if (!resolver || !resolver.available) {
+      return {
+        value: "100",
+        source: "defaultFallback",
+        reason: resolver && resolver.error ? "dailyFetchFailed" : "dailyResolverUnavailable"
+      };
+    }
+
+    const personKey = getWeeklyPersonKey(rowData);
+    if (!personKey) {
+      return {
+        value: "100",
+        source: "defaultFallback",
+        reason: "weeklyPersonMissing"
+      };
+    }
+
+    const wbsId = getWeeklyWbsId(rowData);
+    let weeklyKey = "";
+    let matches = [];
+    let fallbackReason = "noApprovedDailyMatch";
+    let source = "dailyExact";
+    if (wbsId) {
+      weeklyKey = personKey + "|wbs:" + wbsId;
+      if (resolver.usedFinishRateWeeklyKeys.has(weeklyKey)) {
+        return {
+          value: "100",
+          source: "defaultFallback",
+          reason: "duplicateWeeklyWbsPerson"
+        };
+      }
+      matches = findDailyMatchesByWbs(rowData, resolver);
+    }
+
+    if (!matches.length) {
+      const nameMatch = findDailyMatchesByName(rowData, resolver);
+      weeklyKey = nameMatch.key;
+      matches = nameMatch.matches;
+      fallbackReason = nameMatch.reason || "noApprovedDailyMatch";
+      source = "dailyNameFallback";
+      if (weeklyKey && resolver.usedFinishRateWeeklyKeys.has(weeklyKey)) {
+        return {
+          value: "100",
+          source: "defaultFallback",
+          reason: "duplicateWeeklyNamePerson"
+        };
+      }
+    }
+
+    const validMatches = matches.filter(function (row) {
+      return row.realFinishRate !== "";
+    });
+    if (!validMatches.length) {
+      return {
+        value: "100",
+        source: "defaultFallback",
+        reason: matches.length ? "invalidDailyFinishRate" : fallbackReason
+      };
+    }
+
+    validMatches.sort(function (a, b) {
+      return b.sortTime - a.sortTime;
+    });
+    const latest = validMatches[0];
+    if (weeklyKey) {
+      resolver.usedFinishRateWeeklyKeys.add(weeklyKey);
+    }
+    resolver.usedDailyKeys.add(latest.key);
+    return {
+      value: latest.realFinishRate,
+      source: source,
+      dailyFinishRate: latest.realFinishRate,
+      matchedDailyRows: matches.length,
+      latestDailyDate: latest.date
     };
   }
 
@@ -2025,6 +2184,7 @@
             userFullname: row.userFullname,
             taskNames: row.taskNames,
             realHour: row.realHour,
+            realFinishRate: row.realFinishRate,
             status: row.status
           };
         })
@@ -2068,9 +2228,10 @@
         ? String(rowData.planDate)
         : "";
       const actualTime = resolveDailyActualHours(rowData, planDate, dailyActualResolver);
+      const finishRate = resolveDailyFinishRate(rowData, dailyActualResolver);
 
       const nextValues = {
-        finishRate: "100",
+        finishRate: finishRate.value,
         realTime: actualTime.value,
         isNeedDo: "0",
         isState: "50",
@@ -2094,6 +2255,11 @@
           realTimeFallbackReason: actualTime.reason || "",
           dailyRealHour: actualTime.dailyRealHour || "",
           matchedDailyRows: actualTime.matchedDailyRows || 0,
+          resolvedFinishRate: nextValues.finishRate,
+          finishRateSource: finishRate.source,
+          finishRateFallbackReason: finishRate.reason || "",
+          dailyFinishRate: finishRate.dailyFinishRate || "",
+          finishRateDailyDate: finishRate.latestDailyDate || "",
           skipped: true
         });
         return;
@@ -2134,6 +2300,10 @@
         realTimeFallbackReason: actualTime.reason || "",
         dailyRealHour: actualTime.dailyRealHour || "",
         matchedDailyRows: actualTime.matchedDailyRows || 0,
+        finishRateSource: finishRate.source,
+        finishRateFallbackReason: finishRate.reason || "",
+        dailyFinishRate: finishRate.dailyFinishRate || "",
+        finishRateDailyDate: finishRate.latestDailyDate || "",
         isNeedDo: rowData.isNeedDo,
         isState: rowData.isState
       });
@@ -2153,6 +2323,7 @@
             userFullname: row.userFullname,
             taskNames: row.taskNames,
             realHour: row.realHour,
+            realFinishRate: row.realFinishRate,
             status: row.status
           };
         })
