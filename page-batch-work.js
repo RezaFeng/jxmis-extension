@@ -1288,40 +1288,112 @@
   }
 
   function syncNativeNextRow(rowData, $row, sourceRow) {
-    const taskField = $row.find("select#taskField")[0];
+    const taskField = $row && $row.length ? $row.find("select#taskField")[0] : null;
     if (taskField) {
       $(taskField).val("WBS任务").trigger("change");
       fireInputEvent(taskField, "change");
     }
     rowData.taskField = "WBS任务";
-    $row.find("#wbsName").addClass("validate[required]");
+    if ($row && $row.length) {
+      $row.find("#wbsName").addClass("validate[required]");
 
-    setNativeInputValue($row, "#wbsName", sourceRow.wbsName || sourceRow.extName || "");
-    setNativeInputValue($row, "#wbsId", sourceRow.wbsId || "");
+      setNativeInputValue($row, "#wbsName", sourceRow.wbsName || sourceRow.extName || "");
+      setNativeInputValue($row, "#wbsId", sourceRow.wbsId || "");
+    }
     rowData.wbsName = sourceRow.wbsName || sourceRow.extName || "";
     rowData.wbsId = sourceRow.wbsId || "";
 
-    setNativeColumnInputValue($row, 4, sourceRow.extName || sourceRow.wbsName || "");
+    if ($row && $row.length) {
+      setNativeColumnInputValue($row, 4, sourceRow.extName || sourceRow.wbsName || "");
+    }
     rowData.extName = sourceRow.extName || sourceRow.wbsName || "";
 
-    setNativeInputValue($row, "#majorPersonName", sourceRow.majorPersonName || "");
-    setNativeInputValue($row, "#majorPerson", sourceRow.majorPerson || "");
+    if ($row && $row.length) {
+      setNativeInputValue($row, "#majorPersonName", sourceRow.majorPersonName || "");
+      setNativeInputValue($row, "#majorPerson", sourceRow.majorPerson || "");
+    }
     rowData.majorPersonName = sourceRow.majorPersonName || "";
     rowData.majorPerson = sourceRow.majorPerson || "";
 
-    setNativeColumnInputValue($row, 6, sourceRow.planDate || "");
+    if ($row && $row.length) {
+      setNativeColumnInputValue($row, 6, sourceRow.planDate || "");
+    }
     rowData.planDate = sourceRow.planDate || "";
 
-    setNativeColumnInputValue($row, 7, sourceRow.planEndTime || "");
+    if ($row && $row.length) {
+      setNativeColumnInputValue($row, 7, sourceRow.planEndTime || "");
+    }
     rowData.planEndTime = sourceRow.planEndTime || "";
     rowData.wkStatus = sourceRow.wkStatus || "0";
-    $row.find("#wkStatus").text(rowData.wkStatus === "0" ? "正常" : "异常");
+    if ($row && $row.length) {
+      $row.find("#wkStatus").text(rowData.wkStatus === "0" ? "正常" : "异常");
+    }
 
     Object.keys(sourceRow).forEach(function (key) {
       if (rowData[key] === undefined || rowData[key] === null || rowData[key] === "") {
         rowData[key] = sourceRow[key];
       }
     });
+  }
+
+  function findNativeAddedRow($table, dt, beforeNewDataCount, beforeDtCount) {
+    const tableId = $table.attr("id") || "WkExecutiongrid_1";
+    const newData = $table.data("newData") || [];
+    const addedFromNewData = newData.length > beforeNewDataCount
+      ? newData[newData.length - 1]
+      : null;
+    if (addedFromNewData) {
+      const $addRows = $("#" + tableId + " tbody tr.add");
+      if ($addRows.length) {
+        return {
+          rowData: addedFromNewData,
+          $row: $addRows.last(),
+          source: "newData+tr.add"
+        };
+      }
+      return {
+        rowData: addedFromNewData,
+        $row: $(),
+        source: "newData"
+      };
+    }
+
+    const dtRows = dt.rows().data().toArray();
+    if (dtRows.length > beforeDtCount) {
+      const rowData = dtRows[dtRows.length - 1];
+      const node = dt.row(dtRows.length - 1).node && dt.row(dtRows.length - 1).node();
+      return {
+        rowData: rowData,
+        $row: node ? $(node) : $(),
+        source: "dt-last"
+      };
+    }
+
+    const $lastDomRow = $("#" + tableId + " tbody tr").not(".dataTables_empty").last();
+    if ($lastDomRow.length) {
+      const rowDataFromDom = dt.row($lastDomRow[0]).data();
+      if (rowDataFromDom && rowDataFromDom._add_) {
+        return {
+          rowData: rowDataFromDom,
+          $row: $lastDomRow,
+          source: "dom-last-add-data"
+        };
+      }
+    }
+
+    return null;
+  }
+
+  async function waitForNativeAddedRow($table, dt, beforeNewDataCount, beforeDtCount) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 1500) {
+      const found = findNativeAddedRow($table, dt, beforeNewDataCount, beforeDtCount);
+      if (found) {
+        return found;
+      }
+      await delay(100);
+    }
+    return null;
   }
 
   async function insertRowsWithNativeAddWkPlan(rows) {
@@ -1357,17 +1429,34 @@
 
     for (let i = 0; i < rows.length; i += 1) {
       const sourceRow = rows[i];
+      const rowBeforeNewDataCount = ($table.data("newData") || []).length;
+      const rowBeforeDtCount = dt.rows().data().toArray().length;
       wkForm.addWkPlan();
-      await delay(80);
-
-      const $row = $("#" + tableId + " tbody tr.add").last();
-      const rowData = $row.length ? dt.row($row[0]).data() : null;
-      if (!$row.length || !rowData) {
+      const added = await waitForNativeAddedRow($table, dt, rowBeforeNewDataCount, rowBeforeDtCount);
+      if (!added || !added.rowData) {
+        warnWbsStep("native add row not found after addWkPlan", {
+          rowIndex: i,
+          beforeNewDataCount: rowBeforeNewDataCount,
+          afterNewDataCount: ($table.data("newData") || []).length,
+          beforeDtCount: rowBeforeDtCount,
+          afterDtCount: dt.rows().data().toArray().length,
+          tbodyRowCount: $("#" + tableId + " tbody tr").length,
+          addRowCount: $("#" + tableId + " tbody tr.add").length
+        });
         throw new Error("页面原生新增下周计划后，未找到新增行");
       }
 
-      syncNativeNextRow(rowData, $row, sourceRow);
-      insertedRows.push(rowData);
+      syncNativeNextRow(added.rowData, added.$row, sourceRow);
+      insertedRows.push(added.rowData);
+      logWbsStep("native added row filled", {
+        rowIndex: i,
+        source: added.source,
+        hasDomRow: Boolean(added.$row && added.$row.length),
+        extName: added.rowData.extName,
+        wbsId: added.rowData.wbsId,
+        majorPerson: added.rowData.majorPerson,
+        planDate: added.rowData.planDate
+      });
     }
 
     if (typeof dt.draw === "function") {
