@@ -15,6 +15,14 @@
   - Injects `批量报工` next to `重新计算`
   - Fills `WkExecutiongrid`
   - Generates next-week WBS plan rows into `executionNext` before saving
+  - Queries `ProjectPlanDetailService/query` with the maximum page length for next-week WBS candidates
+  - Resolves next week from Monday to Sunday and applies built-in China holiday/workday overrides
+  - Selects WBS tasks whose planned date range intersects next week's workdays
+  - Maps WBS `roleId` / `roleName` into weekly-plan `majorPerson` / `majorPersonName`
+  - Leaves person fields empty for owner `待定`, while still splitting planned hours
+  - Skips WBS candidates that have neither an owner nor planned duration
+  - Splits planned hours into rows capped at 24h each, for example `24 + 16`
+  - Sets generated WBS plan completion time to next Sunday `17:30:00`
   - Writes modified rows into DataTables change store
   - Triggers `WkFormJS.saveAll()`
   - Injects `总结周报`
