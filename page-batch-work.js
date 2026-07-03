@@ -427,6 +427,330 @@
     return result;
   }
 
+  function normalizeMatchText(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function getDailyStatus(row) {
+    return normalizeMatchText(row && (row.newstauts || row.newStatus || row.status));
+  }
+
+  function getDailyDateSource(row) {
+    return (row && (row.submissionTime || row.realEndTime || row.createTime)) || "";
+  }
+
+  function getWeeklyPersonKey(rowData) {
+    const personId = normalizeMatchText(rowData && rowData.majorPerson);
+    if (personId) {
+      return "id:" + personId;
+    }
+    const personName = normalizeMatchText(rowData && rowData.majorPersonName);
+    return personName ? "name:" + personName : "";
+  }
+
+  function dailyPersonMatches(row, rowData) {
+    const dailyOwner = normalizeMatchText(row && row.taskOwner);
+    const weeklyOwner = normalizeMatchText(rowData && rowData.majorPerson);
+    if (dailyOwner && weeklyOwner && dailyOwner === weeklyOwner) {
+      return true;
+    }
+
+    const dailyName = normalizeMatchText(row && (row.userFullname || row.taskcreateperson));
+    const weeklyName = normalizeMatchText(rowData && rowData.majorPersonName);
+    return Boolean(dailyName && weeklyName && dailyName === weeklyName);
+  }
+
+  function getWeeklyWbsId(rowData) {
+    return normalizeMatchText(rowData && rowData.wbsId);
+  }
+
+  function getDailyWbsId(row) {
+    return normalizeMatchText(row && row.wbsId);
+  }
+
+  function getWeeklyTaskNames(rowData) {
+    const seen = new Set();
+    return [
+      rowData && rowData.wbsName,
+      rowData && rowData.extName,
+      rowData && rowData.taskName
+    ].map(normalizeMatchText).filter(function (name) {
+      if (!name || seen.has(name)) {
+        return false;
+      }
+      seen.add(name);
+      return true;
+    });
+  }
+
+  function getDailyTaskNames(row) {
+    const seen = new Set();
+    return [
+      row && row.taskName,
+      row && row.wbsName
+    ].map(normalizeMatchText).filter(function (name) {
+      if (!name || seen.has(name)) {
+        return false;
+      }
+      seen.add(name);
+      return true;
+    });
+  }
+
+  function appendWeeklyDailyActualRows(rows, context, seen, result, stats) {
+    rows.forEach(function (row) {
+      stats.scanned += 1;
+      const dateSource = getDailyDateSource(row);
+      if (!dateInRange(dateSource, context.startDate, context.endDate)) {
+        stats.outsideWeek += 1;
+        return;
+      }
+
+      const status = getDailyStatus(row);
+      if (status && status !== "审核通过") {
+        stats.skippedNotApproved += 1;
+        return;
+      }
+
+      const realHour = toNumber(row && row.realHour);
+      if (realHour <= 0) {
+        stats.skippedNoRealHour += 1;
+        return;
+      }
+
+      const date = formatDate(parseDate(dateSource));
+      const key = [
+        date,
+        normalizeMatchText(row && row.taskOwner),
+        normalizeMatchText(row && row.userFullname),
+        getDailyWbsId(row),
+        getDailyTaskNames(row).join("|"),
+        normalizeMatchText(row && row.taskId),
+        String(realHour)
+      ].join("\n");
+      if (seen.has(key)) {
+        stats.duplicate += 1;
+        return;
+      }
+      seen.add(key);
+
+      const item = {
+        key: key,
+        raw: row,
+        date: date,
+        wbsId: getDailyWbsId(row),
+        taskOwner: normalizeMatchText(row && row.taskOwner),
+        userFullname: normalizeMatchText(row && row.userFullname),
+        taskNames: getDailyTaskNames(row),
+        realHour: realHour,
+        status: status || "未返回状态"
+      };
+      if (!item.wbsId) {
+        stats.noWbsId += 1;
+      }
+      stats.usable += 1;
+      result.push(item);
+    });
+  }
+
+  async function fetchWeeklyDailyActualRows(context) {
+    const seen = new Set();
+    const result = [];
+    const stats = {
+      scanned: 0,
+      usable: 0,
+      outsideWeek: 0,
+      skippedNotApproved: 0,
+      skippedNoRealHour: 0,
+      duplicate: 0,
+      noWbsId: 0
+    };
+
+    const firstData = await fetchTaskDetailPage(context.projectId, 1);
+    const firstRows = Array.isArray(firstData && firstData.rows) ? firstData.rows : [];
+    appendWeeklyDailyActualRows(firstRows, context, seen, result, stats);
+
+    const pageCount = getTaskDetailPageCount(firstData);
+    if (!firstRows.length || pageCount <= 1 || pageHasRowsBeforeWeek(firstRows, context)) {
+      return {
+        rows: result,
+        stats: stats
+      };
+    }
+
+    let nextPage = 2;
+    while (nextPage <= pageCount) {
+      const batch = [];
+      while (nextPage <= pageCount && batch.length < summaryConfig.pageConcurrency) {
+        batch.push(nextPage);
+        nextPage += 1;
+      }
+
+      post(
+        "CW_BATCH_WORK_RUNNING",
+        "并发拉取日报工时页 " + batch[0] + "-" + batch[batch.length - 1] + " / " + pageCount
+      );
+
+      const pages = await Promise.all(
+        batch.map(function (page) {
+          return fetchTaskDetailPage(context.projectId, page).then(function (data) {
+            return {
+              page: page,
+              data: data
+            };
+          });
+        })
+      );
+
+      let shouldStop = false;
+      pages.sort(function (a, b) {
+        return a.page - b.page;
+      }).forEach(function (item) {
+        const rows = Array.isArray(item.data && item.data.rows) ? item.data.rows : [];
+        appendWeeklyDailyActualRows(rows, context, seen, result, stats);
+        if (pageHasRowsBeforeWeek(rows, context)) {
+          shouldStop = true;
+        }
+      });
+
+      if (shouldStop) {
+        break;
+      }
+    }
+
+    return {
+      rows: result,
+      stats: stats
+    };
+  }
+
+  function buildWeeklyNameMatchCounts(weeklyRows) {
+    const counts = {};
+    weeklyRows.forEach(function (rowData) {
+      const personKey = getWeeklyPersonKey(rowData);
+      if (!personKey) {
+        return;
+      }
+      getWeeklyTaskNames(rowData).forEach(function (name) {
+        const key = personKey + "|name:" + name;
+        counts[key] = (counts[key] || 0) + 1;
+      });
+    });
+    return counts;
+  }
+
+  function formatHourValue(value) {
+    const rounded = Math.round(toNumber(value) * 100) / 100;
+    return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  }
+
+  function createDailyActualResolver(dailyRows, weeklyRows) {
+    return {
+      available: true,
+      dailyRows: dailyRows,
+      nameCounts: buildWeeklyNameMatchCounts(weeklyRows),
+      usedWeeklyKeys: new Set(),
+      usedDailyKeys: new Set()
+    };
+  }
+
+  function resolveDailyActualHours(rowData, planDate, resolver) {
+    if (!resolver || !resolver.available) {
+      return {
+        value: planDate,
+        source: "planFallback",
+        reason: resolver && resolver.error ? "dailyFetchFailed" : "dailyResolverUnavailable"
+      };
+    }
+
+    const personKey = getWeeklyPersonKey(rowData);
+    if (!personKey) {
+      return {
+        value: planDate,
+        source: "planFallback",
+        reason: "weeklyPersonMissing"
+      };
+    }
+
+    const wbsId = getWeeklyWbsId(rowData);
+    if (wbsId) {
+      const weeklyKey = personKey + "|wbs:" + wbsId;
+      if (resolver.usedWeeklyKeys.has(weeklyKey)) {
+        return {
+          value: planDate,
+          source: "planFallback",
+          reason: "duplicateWeeklyWbsPerson"
+        };
+      }
+
+      const matches = resolver.dailyRows.filter(function (row) {
+        return row.wbsId === wbsId && dailyPersonMatches(row.raw, rowData);
+      });
+      const total = matches.reduce(function (sum, row) {
+        return sum + row.realHour;
+      }, 0);
+      if (total > 0) {
+        resolver.usedWeeklyKeys.add(weeklyKey);
+        matches.forEach(function (row) {
+          resolver.usedDailyKeys.add(row.key);
+        });
+        return {
+          value: formatHourValue(total),
+          source: "dailyExact",
+          dailyRealHour: total,
+          matchedDailyRows: matches.length
+        };
+      }
+    }
+
+    const names = getWeeklyTaskNames(rowData);
+    for (let i = 0; i < names.length; i += 1) {
+      const name = names[i];
+      const weeklyNameKey = personKey + "|name:" + name;
+      if ((resolver.nameCounts[weeklyNameKey] || 0) > 1) {
+        return {
+          value: planDate,
+          source: "planFallback",
+          reason: "ambiguousNameMatch"
+        };
+      }
+      if (resolver.usedWeeklyKeys.has(weeklyNameKey)) {
+        return {
+          value: planDate,
+          source: "planFallback",
+          reason: "duplicateWeeklyNamePerson"
+        };
+      }
+
+      const matches = resolver.dailyRows.filter(function (row) {
+        return !row.wbsId &&
+          row.taskNames.indexOf(name) >= 0 &&
+          dailyPersonMatches(row.raw, rowData);
+      });
+      const total = matches.reduce(function (sum, row) {
+        return sum + row.realHour;
+      }, 0);
+      if (total > 0) {
+        resolver.usedWeeklyKeys.add(weeklyNameKey);
+        matches.forEach(function (row) {
+          resolver.usedDailyKeys.add(row.key);
+        });
+        return {
+          value: formatHourValue(total),
+          source: "dailyNameFallback",
+          dailyRealHour: total,
+          matchedDailyRows: matches.length
+        };
+      }
+    }
+
+    return {
+      value: planDate,
+      source: "planFallback",
+      reason: "noDailyMatch"
+    };
+  }
+
   function createUserPrompt(context, dailyTasks) {
     return JSON.stringify(
       {
@@ -1668,6 +1992,53 @@
       return x && x[pk];
     }).filter(Boolean));
 
+    const context = await getWeeklyContext();
+    logWbsStep("weekly context resolved", {
+      wkId: context.wkId,
+      projectId: context.projectId,
+      projectName: context.projectName,
+      weekDate: context.weekDate,
+      weekStart: context.weekStart,
+      weekEnd: context.weekEnd,
+      prodPerson: context.prodPerson,
+      prodPersonName: context.prodPersonName,
+      projectManager: context.projectManager,
+      projectManagerName: context.projectManagerName
+    });
+
+    let dailyActualResolver = {
+      available: false,
+      error: "notLoaded"
+    };
+    post("CW_BATCH_WORK_RUNNING", "查询本周日报实际工时");
+    try {
+      const dailyActualResult = await fetchWeeklyDailyActualRows(context);
+      dailyActualResolver = createDailyActualResolver(dailyActualResult.rows, dataArr);
+      logWbsStep("weekly daily actual hours loaded", {
+        stats: dailyActualResult.stats,
+        usableRows: dailyActualResult.rows.length,
+        sample: dailyActualResult.rows.slice(0, 10).map(function (row) {
+          return {
+            date: row.date,
+            wbsId: row.wbsId,
+            taskOwner: row.taskOwner,
+            userFullname: row.userFullname,
+            taskNames: row.taskNames,
+            realHour: row.realHour,
+            status: row.status
+          };
+        })
+      });
+    } catch (error) {
+      dailyActualResolver = {
+        available: false,
+        error: error && error.message ? error.message : String(error)
+      };
+      warnWbsStep("fetch weekly daily actual hours failed, fallback to planDate", {
+        error: dailyActualResolver.error
+      });
+    }
+
     const result = [];
 
     function setInputValue(input, value) {
@@ -1696,10 +2067,11 @@
       const planDate = rowData.planDate != null && rowData.planDate !== ""
         ? String(rowData.planDate)
         : "";
+      const actualTime = resolveDailyActualHours(rowData, planDate, dailyActualResolver);
 
       const nextValues = {
         finishRate: "100",
-        realTime: planDate,
+        realTime: actualTime.value,
         isNeedDo: "0",
         isState: "50",
         memo: ""
@@ -1716,6 +2088,12 @@
         result.push({
           row: i + 1,
           extName: rowData.extName,
+          realTime: rowData.realTime,
+          resolvedRealTime: nextValues.realTime,
+          realTimeSource: actualTime.source,
+          realTimeFallbackReason: actualTime.reason || "",
+          dailyRealHour: actualTime.dailyRealHour || "",
+          matchedDailyRows: actualTime.matchedDailyRows || 0,
           skipped: true
         });
         return;
@@ -1751,10 +2129,35 @@
         extName: rowData.extName,
         finishRate: rowData.finishRate,
         realTime: rowData.realTime,
+        planDate: planDate,
+        realTimeSource: actualTime.source,
+        realTimeFallbackReason: actualTime.reason || "",
+        dailyRealHour: actualTime.dailyRealHour || "",
+        matchedDailyRows: actualTime.matchedDailyRows || 0,
         isNeedDo: rowData.isNeedDo,
         isState: rowData.isState
       });
     });
+
+    if (dailyActualResolver && dailyActualResolver.available) {
+      const unmatchedDailyRows = dailyActualResolver.dailyRows.filter(function (row) {
+        return !dailyActualResolver.usedDailyKeys.has(row.key);
+      });
+      logWbsStep("weekly daily actual hours unmatched rows", {
+        count: unmatchedDailyRows.length,
+        sample: unmatchedDailyRows.slice(0, 20).map(function (row) {
+          return {
+            date: row.date,
+            wbsId: row.wbsId,
+            taskOwner: row.taskOwner,
+            userFullname: row.userFullname,
+            taskNames: row.taskNames,
+            realHour: row.realHour,
+            status: row.status
+          };
+        })
+      });
+    }
 
     $table.data(CHANGE_STORE, changeData);
 
@@ -1782,19 +2185,6 @@
     }
 
     post("CW_BATCH_WORK_RUNNING", "生成下周 WBS 计划明细");
-    const context = await getWeeklyContext();
-    logWbsStep("weekly context resolved", {
-      wkId: context.wkId,
-      projectId: context.projectId,
-      projectName: context.projectName,
-      weekDate: context.weekDate,
-      weekStart: context.weekStart,
-      weekEnd: context.weekEnd,
-      prodPerson: context.prodPerson,
-      prodPersonName: context.prodPersonName,
-      projectManager: context.projectManager,
-      projectManagerName: context.projectManagerName
-    });
     const nextPlanResult = await fillNextWeekWbsPlan(context);
     const finalModifyData = {
       execution: DataTablesUtil.data.getModifyData(tableId),
