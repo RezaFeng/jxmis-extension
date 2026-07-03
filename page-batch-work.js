@@ -1050,7 +1050,7 @@
       svn: "",
       isNeedDo: "",
       extName: detailName,
-      planDate: tentative || manualPerson ? "" : String(hours),
+      planDate: manualPerson ? "" : String(hours),
       realTime: "",
       finishRate: "",
       actualHour: "",
@@ -1156,28 +1156,24 @@
       }
 
       const tentative = isTentativeOwner(wbs);
-      if (tentative) {
-        generated.push(createNextExecutionRow(wbs, "", context, {
-          planEndTime: nextWeek.endText + " 17:30:00"
-        }));
-        dedup.add(key);
-        stats.tentative += 1;
-        stats.generatedTasks += 1;
-        stats.generatedRows += 1;
-        if (includedSamples.length < 10) {
-          includedSamples.push({
+      const person = getWbsOwnerId(wbs);
+      if (tentative && !hasWbsDuration(wbs)) {
+        stats.noOwnerAndNoDuration += 1;
+        if (skippedSamples.length < 5) {
+          skippedSamples.push({
+            reason: "tentativeNoDuration",
             detailId: detailId,
             detailName: detailName,
-            owner: "待定",
-            planDate: "",
-            chunks: [""]
+            roleName: wbs && wbs.roleName,
+            roleId: wbs && wbs.roleId,
+            majorPerson: wbs && wbs.majorPerson,
+            duration: wbs && wbs.duration
           });
         }
         return;
       }
 
-      const person = getWbsOwnerId(wbs);
-      if (!person) {
+      if (!person && !tentative) {
         if (!hasWbsDuration(wbs)) {
           stats.noOwnerAndNoDuration += 1;
           if (skippedSamples.length < 5) {
@@ -1223,7 +1219,8 @@
       const intersectionEnd = planEnd < nextWeek.end ? planEnd : nextWeek.end;
       const intersectionWorkdays = countWorkdaysInRange(intersectionStart, intersectionEnd);
       const capacity = nextWeek.workdays.length * 8;
-      const remaining = Math.max(0, capacity - (usedHoursByPerson[person] || 0));
+      const capacityKey = tentative ? "tentative:" + detailId : person;
+      const remaining = Math.max(0, capacity - (usedHoursByPerson[capacityKey] || 0));
       const durationHours = Math.max(0, Math.floor(toNumber(wbs && wbs.duration) * 8));
       const assignableHours = Math.min(intersectionWorkdays * 8, durationHours || intersectionWorkdays * 8, remaining);
       const chunks = splitHours(assignableHours);
@@ -1235,7 +1232,7 @@
             reason: "zeroAssignable",
             detailId: detailId,
             detailName: detailName,
-            person: person,
+            person: tentative ? "待定" : person,
             roleName: wbs && wbs.roleName,
             intersectionWorkdays: intersectionWorkdays,
             duration: wbs && wbs.duration,
@@ -1251,15 +1248,19 @@
         }));
       });
       if (assignableHours > 0) {
-        usedHoursByPerson[person] = (usedHoursByPerson[person] || 0) + assignableHours;
+        usedHoursByPerson[capacityKey] = (usedHoursByPerson[capacityKey] || 0) + assignableHours;
         dedup.add(key);
+        if (tentative) {
+          stats.tentative += 1;
+        }
         stats.generatedTasks += 1;
         stats.generatedRows += chunks.length;
         if (includedSamples.length < 10) {
           includedSamples.push({
             detailId: detailId,
             detailName: detailName,
-            person: person,
+            person: tentative ? "" : person,
+            owner: tentative ? "待定" : "",
             roleName: wbs && wbs.roleName,
             roleId: wbs && wbs.roleId,
             intersectionWorkdays: intersectionWorkdays,
