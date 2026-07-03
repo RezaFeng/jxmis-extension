@@ -878,6 +878,13 @@
     return $table.data("dataTablesDT") || null;
   }
 
+  function getNativeNextDataTable($table) {
+    if (!$table || !$table.length) {
+      return null;
+    }
+    return $table.data("dataTablesDT") || ($table.DataTable && $table.DataTable());
+  }
+
   function findNextExecutionTable($) {
     const candidates = [];
     const inspected = [];
@@ -1228,59 +1235,159 @@
     return generated;
   }
 
-  function insertRowsIntoDataTable($table, dt, rows) {
-    const tableId = $table && $table.length ? $table.attr("id") || "" : "";
-    logWbsStep("insert rows into DataTable start", {
-      tableId: tableId,
-      incomingRows: rows.length,
-      hasDt: Boolean(dt),
-      hasRowAdd: Boolean(dt && dt.row && typeof dt.row.add === "function")
-    });
-    if (!rows.length) {
-      warnWbsStep("skip DataTable insert because generated rows is empty", {
-        tableId: tableId
+  function fireInputEvent(el, type) {
+    if (!el) {
+      return;
+    }
+    el.dispatchEvent(new Event(type, { bubbles: true }));
+  }
+
+  function setNativeInputValue($row, selector, value) {
+    const $input = $row.find(selector);
+    const input = $input[0];
+    $input.val(value);
+    if (input) {
+      input.value = value;
+      input.setAttribute("value", value);
+      fireInputEvent(input, "input");
+      fireInputEvent(input, "change");
+    }
+  }
+
+  function setNativeColumnInputValue($row, colIndex, value) {
+    const input = $row.children().eq(colIndex).find("input,textarea,select")[0];
+    if (!input) {
+      warnWbsStep("native column input not found", {
+        colIndex: colIndex,
+        value: value
       });
       return;
     }
-    const CHANGE_STORE = DataTablesUtil.const.DATA_STORE_CHG || "changeData";
-    const changeData = $table.data(CHANGE_STORE) || [];
-    const beforeChangeStoreCount = changeData.length;
-    const beforeDtCount = dt && dt.rows && typeof dt.rows === "function"
-      ? dt.rows().data().toArray().length
-      : null;
+    input.value = value;
+    input.setAttribute("value", value);
+    fireInputEvent(input, "input");
+    fireInputEvent(input, "change");
+  }
 
-    rows.forEach(function (row) {
-      if (dt && dt.row && typeof dt.row.add === "function") {
-        dt.row.add(row);
+  function syncNativeNextRow(rowData, $row, sourceRow) {
+    const taskField = $row.find("select#taskField")[0];
+    if (taskField) {
+      $(taskField).val("WBS任务").trigger("change");
+      fireInputEvent(taskField, "change");
+    }
+    rowData.taskField = "WBS任务";
+    $row.find("#wbsName").addClass("validate[required]");
+
+    setNativeInputValue($row, "#wbsName", sourceRow.wbsName || sourceRow.extName || "");
+    setNativeInputValue($row, "#wbsId", sourceRow.wbsId || "");
+    rowData.wbsName = sourceRow.wbsName || sourceRow.extName || "";
+    rowData.wbsId = sourceRow.wbsId || "";
+
+    setNativeColumnInputValue($row, 4, sourceRow.extName || sourceRow.wbsName || "");
+    rowData.extName = sourceRow.extName || sourceRow.wbsName || "";
+
+    setNativeInputValue($row, "#majorPersonName", sourceRow.majorPersonName || "");
+    setNativeInputValue($row, "#majorPerson", sourceRow.majorPerson || "");
+    rowData.majorPersonName = sourceRow.majorPersonName || "";
+    rowData.majorPerson = sourceRow.majorPerson || "";
+
+    setNativeColumnInputValue($row, 6, sourceRow.planDate || "");
+    rowData.planDate = sourceRow.planDate || "";
+
+    setNativeColumnInputValue($row, 7, sourceRow.planEndTime || "");
+    rowData.planEndTime = sourceRow.planEndTime || "";
+    rowData.wkStatus = sourceRow.wkStatus || "0";
+    $row.find("#wkStatus").text(rowData.wkStatus === "0" ? "正常" : "异常");
+
+    Object.keys(sourceRow).forEach(function (key) {
+      if (rowData[key] === undefined || rowData[key] === null || rowData[key] === "") {
+        rowData[key] = sourceRow[key];
       }
-      changeData.push(row);
+    });
+  }
+
+  async function insertRowsWithNativeAddWkPlan(rows) {
+    const tableId = "WkExecutiongrid_1";
+    const $table = $("#" + tableId);
+    const dt = getNativeNextDataTable($table);
+    logWbsStep("native insert start", {
+      tableId: tableId,
+      incomingRows: rows.length,
+      hasTable: Boolean($table.length),
+      hasDt: Boolean(dt),
+      hasAddWkPlan: Boolean(window.WkFormJS && typeof window.WkFormJS.addWkPlan === "function")
     });
 
-    if (dt && typeof dt.draw === "function") {
+    if (!rows.length) {
+      warnWbsStep("skip native insert because generated rows is empty", {
+        tableId: tableId
+      });
+      return {
+        tableId: tableId,
+        insertedRows: [],
+        modifyData: DataTablesUtil.data.getModifyData(tableId)
+      };
+    }
+
+    if (!$table.length || !dt) {
+      throw new Error("未找到下周计划表 WkExecutiongrid_1 或 DataTable");
+    }
+    if (!window.WkFormJS || typeof window.WkFormJS.addWkPlan !== "function") {
+      throw new Error("未找到 WkFormJS.addWkPlan，无法使用页面原生新增下周计划");
+    }
+
+    const beforeNewData = $table.data("newData") || [];
+    const beforeDtCount = dt.rows().data().toArray().length;
+    const insertedRows = [];
+
+    for (let i = 0; i < rows.length; i += 1) {
+      const sourceRow = rows[i];
+      window.WkFormJS.addWkPlan();
+      await delay(80);
+
+      const $row = $("#" + tableId + " tbody tr.add").last();
+      const rowData = $row.length ? dt.row($row[0]).data() : null;
+      if (!$row.length || !rowData) {
+        throw new Error("页面原生新增下周计划后，未找到新增行");
+      }
+
+      syncNativeNextRow(rowData, $row, sourceRow);
+      insertedRows.push(rowData);
+    }
+
+    if (typeof dt.draw === "function") {
       dt.draw(false);
     }
-    $table.data(CHANGE_STORE, changeData);
-    const afterDtCount = dt && dt.rows && typeof dt.rows === "function"
-      ? dt.rows().data().toArray().length
-      : null;
-    logWbsStep("insert rows into DataTable done", {
+
+    const afterNewData = $table.data("newData") || [];
+    const afterDtCount = dt.rows().data().toArray().length;
+    const modifyData = DataTablesUtil.data.getModifyData(tableId);
+    logWbsStep("native insert done", {
       tableId: tableId,
-      beforeChangeStoreCount: beforeChangeStoreCount,
-      afterChangeStoreCount: changeData.length,
+      beforeNewDataCount: beforeNewData.length,
+      afterNewDataCount: afterNewData.length,
       beforeDtCount: beforeDtCount,
       afterDtCount: afterDtCount,
-      insertedSample: rows.slice(0, 5).map(function (row) {
+      insertedCount: insertedRows.length,
+      modifyData: modifyData,
+      insertedSample: insertedRows.slice(0, 5).map(function (row) {
         return {
           extName: row.extName,
           wbsId: row.wbsId,
           majorPerson: row.majorPerson,
           majorPersonName: row.majorPersonName,
           planDate: row.planDate,
-          nextWkId: row.nextWkId,
+          planEndTime: row.planEndTime,
           _add_: row._add_
         };
       })
     });
+
+    return {
+      tableId: tableId,
+      insertedRows: insertedRows,
+      modifyData: modifyData
+    };
   }
 
   function getMissingMajorPersonRows(rows) {
@@ -1304,14 +1411,15 @@
         weekEnd: context.weekEnd
       }
     });
-    const $table = findNextExecutionTable($);
-    const dt = getDataTableApi($table);
+    const $table = $("#WkExecutiongrid_1");
+    const dt = getNativeNextDataTable($table);
     if (!$table.length || !dt) {
-      warnWbsStep("next execution DataTable not found", {
+      warnWbsStep("next execution native DataTable not found", {
+        tableId: "WkExecutiongrid_1",
         hasTable: Boolean($table.length),
         hasDt: Boolean(dt)
       });
-      throw new Error("未找到下周计划 DataTable，无法写入 executionNext");
+      throw new Error("未找到下周计划表 WkExecutiongrid_1，无法写入 executionNext");
     }
 
     const nextWeek = getNextWeekInfo(context);
@@ -1360,11 +1468,9 @@
       })
     });
 
-    insertRowsIntoDataTable($table, dt, generatedRows);
-    const tableId = $table.attr("id") || "";
-    const modifyData = tableId && DataTablesUtil.data && DataTablesUtil.data.getModifyData
-      ? DataTablesUtil.data.getModifyData(tableId)
-      : null;
+    const insertResult = await insertRowsWithNativeAddWkPlan(generatedRows);
+    const tableId = insertResult.tableId;
+    const modifyData = insertResult.modifyData;
     logWbsStep("executionNext modifyData before save", {
       tableId: tableId,
       insertCount: modifyData && modifyData.insert ? modifyData.insert.length : null,
@@ -1379,6 +1485,7 @@
       existingCount: existingRows.length,
       missingMajorPersonCount: missingMajorPersonRows.length,
       missingMajorPersonRows: missingMajorPersonRows,
+      insertedRows: insertResult.insertedRows,
       tableId: tableId,
       modifyData: modifyData
     };
