@@ -5,6 +5,7 @@
     baseUrl: document.getElementById("baseUrl"),
     apiKey: document.getElementById("apiKey"),
     model: document.getElementById("model"),
+    provider: document.getElementById("provider"),
     enableThinking: document.getElementById("enableThinking"),
     systemPrompt: document.getElementById("systemPrompt"),
     modelList: document.getElementById("modelList"),
@@ -41,6 +42,7 @@
       baseUrl: fields.baseUrl.value.trim(),
       apiKey: fields.apiKey.value.trim(),
       model: fields.model.value.trim(),
+      provider: fields.provider.value || "deepseek",
       enableThinking: fields.enableThinking.checked,
       systemPrompt: fields.systemPrompt.value.trim() || DEFAULT_SYSTEM_PROMPT
     };
@@ -56,12 +58,14 @@
       baseUrl: "",
       apiKey: "",
       model: "",
+      provider: "deepseek",
       enableThinking: false,
       systemPrompt: DEFAULT_SYSTEM_PROMPT
     });
     fields.baseUrl.value = data.baseUrl || "";
     fields.apiKey.value = data.apiKey || "";
     fields.model.value = data.model || "";
+    fields.provider.value = data.provider || "deepseek";
     fields.enableThinking.checked = data.enableThinking === true;
     fields.systemPrompt.value = data.systemPrompt || DEFAULT_SYSTEM_PROMPT;
   }

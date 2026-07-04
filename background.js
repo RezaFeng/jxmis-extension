@@ -1,11 +1,13 @@
 (function () {
-  importScripts("defaults.js");
+  importScripts("defaults.js", "ai-request-body.js");
   const DEFAULT_SYSTEM_PROMPT = (globalThis.CW_DEFAULTS && globalThis.CW_DEFAULTS.systemPrompt) || "";
+  const AI_REQUESTS = globalThis.CW_AI_REQUESTS;
 
   const DEFAULT_CONFIG = {
     baseUrl: "",
     apiKey: "",
     model: "",
+    provider: AI_REQUESTS.DEFAULT_PROVIDER,
     enableThinking: false,
     systemPrompt: DEFAULT_SYSTEM_PROMPT
   };
@@ -235,6 +237,7 @@
     const config = await getConfig();
     const baseUrl = normalizeBaseUrl(config.baseUrl);
     const model = String(config.model || "").trim();
+    const provider = AI_REQUESTS.normalizeProvider(config.provider);
     if (!baseUrl) {
       throw new Error("请先配置模型 URL");
     }
@@ -253,6 +256,7 @@
       requestId: requestId,
       baseUrl: baseUrl,
       model: model,
+      provider: provider,
       promptLength: userPrompt.length
     });
     port.postMessage({
@@ -260,26 +264,13 @@
       message: "正在请求模型接口：" + model
     });
 
-    const requestBody = {
+    const requestBody = AI_REQUESTS.createChatRequestBody({
+      provider: provider,
       model: model,
-      stream: true,
-      thinking: {
-        type: enableThinking ? "enabled" : "disabled"
-      },
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt
-        },
-        {
-          role: "user",
-          content: userPrompt
-        }
-      ]
-    };
-    if (enableThinking) {
-      requestBody.reasoning_effort = "high";
-    }
+      enableThinking: enableThinking,
+      systemPrompt: systemPrompt,
+      userPrompt: userPrompt
+    });
 
     const response = await fetch(baseUrl + "/chat/completions", {
       method: "POST",
