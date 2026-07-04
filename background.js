@@ -6,9 +6,9 @@
     baseUrl: "",
     apiKey: "",
     model: "",
+    enableThinking: false,
     systemPrompt: DEFAULT_SYSTEM_PROMPT
   };
-  const NO_REASONING_PROMPT = "请直接输出最终周报正文，不要输出推理过程、思考过程、分析过程或 reasoning 内容。";
 
   function storageGet(keys) {
     return new Promise(function (resolve) {
@@ -242,10 +242,8 @@
       throw new Error("请先选择模型");
     }
 
-    const systemPrompt =
-      String(request.systemPrompt || config.systemPrompt || DEFAULT_SYSTEM_PROMPT) +
-      "\n\n" +
-      NO_REASONING_PROMPT;
+    const enableThinking = config.enableThinking === true;
+    const systemPrompt = String(request.systemPrompt || config.systemPrompt || DEFAULT_SYSTEM_PROMPT);
     const userPrompt = String(request.userPrompt || "");
     if (!userPrompt) {
       throw new Error("周报总结输入为空");
@@ -275,6 +273,7 @@
       body: JSON.stringify({
         model: model,
         stream: true,
+        enable_thinking: enableThinking,
         messages: [
           {
             role: "system",
