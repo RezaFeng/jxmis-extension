@@ -44,17 +44,12 @@
     return window.CwJxmisTransport.assertOk(response, label);
   }
 
+  async function fetchJson(url, label) {
+    return window.CwJxmisTransport.fetchJson(fetch, url, label);
+  }
+
   async function fetchCurrentUserId() {
-    const response = await fetch(getBaseUrl() + "/rest/org/user", {
-      method: "GET",
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/json, text/javascript, */*; q=0.01",
-        "X-Requested-With": "XMLHttpRequest"
-      }
-    });
-    await assertOk(response, "fetch current user");
-    const data = await response.json();
+    const data = await fetchJson(getBaseUrl() + "/rest/org/user", "fetch current user");
     const userId = (data && data.userId) || (data && data.user && data.user.userId);
     if (!userId) {
       throw new Error("current userId not found");
@@ -75,16 +70,10 @@
       rows: String(config.pageSize)
     });
 
-    const response = await fetch(getBaseUrl() + "/rest/project/queryDailyApprovalService/query?" + params.toString(), {
-      method: "GET",
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/json, text/javascript, */*; q=0.01",
-        "X-Requested-With": "XMLHttpRequest"
-      }
-    });
-    await assertOk(response, "fetch pending page " + page);
-    return response.json();
+    return fetchJson(
+      getBaseUrl() + "/rest/project/queryDailyApprovalService/query?" + params.toString(),
+      "fetch pending page " + page
+    );
   }
 
   async function fetchAllPendingRows(projectManager) {

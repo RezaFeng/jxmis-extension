@@ -19,6 +19,7 @@
   const WORK_SCRIPT_ID = "cw-batch-work-page-script";
   const WORK_PLAN_SCRIPT_ID = "cw-wbs-plan-script";
   const WORK_DAILY_ACTUAL_SCRIPT_ID = "cw-daily-actual-script";
+  const WEEKLY_DETAIL_SCRIPT_ID = "cw-weekly-detail-script";
   const WORK_WRAPPER_ID = "cw-batch-work-wrapper";
   const WORK_BTN_ID = "cw-batch-work-btn";
   const WORK_STATUS_ID = "cw-batch-work-status";
@@ -35,6 +36,49 @@
   let workRunning = false;
   let weeklyRunning = false;
   let aiPort = null;
+
+  const STATUS_CONTROLS = {
+    daily: {
+      statusId: DAILY_STATUS_ID,
+      buttonId: DAILY_BTN_ID,
+      isRunning: function () {
+        return dailyRunning;
+      },
+      setRunning: function (runningValue) {
+        dailyRunning = runningValue;
+      },
+      runningText: "审批中...",
+      idleText: "批量审批未审批日报"
+    },
+    work: {
+      statusId: WORK_STATUS_ID,
+      buttonId: WORK_BTN_ID,
+      isRunning: function () {
+        return workRunning;
+      },
+      setRunning: function (runningValue) {
+        workRunning = runningValue;
+      },
+      runningText: "报工中...",
+      idleText: "批量报工"
+    },
+    weekly: {
+      statusId: WEEKLY_STATUS_ID,
+      buttonId: WEEKLY_BTN_ID,
+      isRunning: function () {
+        return weeklyRunning;
+      },
+      setRunning: function (runningValue) {
+        weeklyRunning = runningValue;
+      },
+      runningText: "审核中...",
+      idleText: "批量审核"
+    }
+  };
+
+  function setAutomationStatus(controlName, text, running) {
+    updateAutomationStatus(STATUS_CONTROLS[controlName], text, running);
+  }
 
   function updateAutomationStatus(config, text, running) {
     const status = document.getElementById(config.statusId);
@@ -77,12 +121,14 @@
       injectPageScript(TRANSPORT_SCRIPT_ID, "jxmis-transport.js");
       injectPageScript(WORK_PLAN_SCRIPT_ID, "wbs-plan.js");
       injectPageScript(WORK_DAILY_ACTUAL_SCRIPT_ID, "daily-actual.js");
+      injectPageScript(WEEKLY_DETAIL_SCRIPT_ID, "weekly-detail.js");
       injectPageScript(WORK_SCRIPT_ID, "page-batch-work.js");
       ensureWorkButton();
     }
 
     if (isWeeklyApprovalListPage()) {
       injectPageScript(TRANSPORT_SCRIPT_ID, "jxmis-transport.js");
+      injectPageScript(WEEKLY_DETAIL_SCRIPT_ID, "weekly-detail.js");
       injectPageScript(WEEKLY_SCRIPT_ID, "page-batch-weekly-approve.js");
       ensureWeeklyApprovalPanel();
     }
@@ -181,22 +227,7 @@
   }
 
   function setDailyStatus(text, running) {
-    updateAutomationStatus(
-      {
-        statusId: DAILY_STATUS_ID,
-        buttonId: DAILY_BTN_ID,
-        isRunning: function () {
-          return dailyRunning;
-        },
-        setRunning: function (runningValue) {
-          dailyRunning = runningValue;
-        },
-        runningText: "审批中...",
-        idleText: "批量审批未审批日报"
-      },
-      text,
-      running
-    );
+    setAutomationStatus("daily", text, running);
   }
 
   function tryRefreshApprovalGrid() {
@@ -308,22 +339,7 @@
   }
 
   function setWorkStatus(text, running) {
-    updateAutomationStatus(
-      {
-        statusId: WORK_STATUS_ID,
-        buttonId: WORK_BTN_ID,
-        isRunning: function () {
-          return workRunning;
-        },
-        setRunning: function (runningValue) {
-          workRunning = runningValue;
-        },
-        runningText: "报工中...",
-        idleText: "批量报工"
-      },
-      text,
-      running
-    );
+    setAutomationStatus("work", text, running);
   }
 
   function postToPage(message) {
@@ -498,22 +514,7 @@
   }
 
   function setWeeklyStatus(text, running) {
-    updateAutomationStatus(
-      {
-        statusId: WEEKLY_STATUS_ID,
-        buttonId: WEEKLY_BTN_ID,
-        isRunning: function () {
-          return weeklyRunning;
-        },
-        setRunning: function (runningValue) {
-          weeklyRunning = runningValue;
-        },
-        runningText: "审核中...",
-        idleText: "批量审核"
-      },
-      text,
-      running
-    );
+    setAutomationStatus("weekly", text, running);
   }
 
   function tryRefreshWeeklyGrid() {
