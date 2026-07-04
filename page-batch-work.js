@@ -569,6 +569,16 @@
     return window.CwDailyActual.resolveDailyRealEndTime(rowData, fallbackValue, resolver);
   }
 
+  function buildCurrentWeekExecutionPlan(options) {
+    if (
+      !window.CwCurrentWeekExecutionPlan ||
+      typeof window.CwCurrentWeekExecutionPlan.buildCurrentWeekExecutionPlan !== "function"
+    ) {
+      throw new Error("当前周执行计划模块未加载");
+    }
+    return window.CwCurrentWeekExecutionPlan.buildCurrentWeekExecutionPlan(options);
+  }
+
   function createUserPrompt(context, dailyTasks) {
     return JSON.stringify(
       {
@@ -1639,46 +1649,18 @@
       const actualTime = resolveDailyActualHours(rowData, planDate, dailyActualResolver);
       const finishRate = resolveDailyFinishRate(rowData, dailyActualResolver);
       const realEndTime = resolveDailyRealEndTime(rowData, planEndTime, dailyActualResolver);
+      const executionPlan = buildCurrentWeekExecutionPlan({
+        rowData: rowData,
+        rowNumber: i + 1,
+        planDate: planDate,
+        actualTime: actualTime,
+        finishRate: finishRate,
+        realEndTime: realEndTime
+      });
+      const nextValues = executionPlan.nextValues;
 
-      const nextValues = {
-        finishRate: finishRate.value,
-        realEndTime: realEndTime.value,
-        realTime: actualTime.value,
-        isNeedDo: "0",
-        isState: "50",
-        memo: ""
-      };
-
-      const hasChanged =
-        String(rowData.finishRate ?? "") !== nextValues.finishRate ||
-        String(rowData.realEndTime ?? "") !== nextValues.realEndTime ||
-        String(rowData.realTime ?? "") !== nextValues.realTime ||
-        String(rowData.isNeedDo ?? "") !== nextValues.isNeedDo ||
-        String(rowData.isState ?? "") !== nextValues.isState ||
-        String(rowData.memo ?? "") !== nextValues.memo;
-
-      if (!hasChanged) {
-        result.push({
-          row: i + 1,
-          extName: rowData.extName,
-          realTime: rowData.realTime,
-          resolvedRealTime: nextValues.realTime,
-          realTimeSource: actualTime.source,
-          realTimeFallbackReason: actualTime.reason || "",
-          dailyRealHour: actualTime.dailyRealHour || "",
-          matchedDailyRows: actualTime.matchedDailyRows || 0,
-          resolvedFinishRate: nextValues.finishRate,
-          finishRateSource: finishRate.source,
-          finishRateFallbackReason: finishRate.reason || "",
-          dailyFinishRate: finishRate.dailyFinishRate || "",
-          finishRateDailyDate: finishRate.latestDailyDate || "",
-          resolvedRealEndTime: nextValues.realEndTime,
-          realEndTimeSource: realEndTime.source,
-          realEndTimeFallbackReason: realEndTime.reason || "",
-          dailyEndTime: realEndTime.dailyEndTime || "",
-          realEndTimeDailyDate: realEndTime.latestDailyDate || "",
-          skipped: true
-        });
+      if (!executionPlan.hasChanged) {
+        result.push(executionPlan.summaryRow);
         return;
       }
 
@@ -1708,29 +1690,7 @@
         changedPkSet.add(rowPk);
       }
 
-      result.push({
-        row: i + 1,
-        extId: rowData.extId,
-        extName: rowData.extName,
-        finishRate: rowData.finishRate,
-        realEndTime: rowData.realEndTime,
-        realTime: rowData.realTime,
-        planDate: planDate,
-        realTimeSource: actualTime.source,
-        realTimeFallbackReason: actualTime.reason || "",
-        dailyRealHour: actualTime.dailyRealHour || "",
-        matchedDailyRows: actualTime.matchedDailyRows || 0,
-        finishRateSource: finishRate.source,
-        finishRateFallbackReason: finishRate.reason || "",
-        dailyFinishRate: finishRate.dailyFinishRate || "",
-        finishRateDailyDate: finishRate.latestDailyDate || "",
-        realEndTimeSource: realEndTime.source,
-        realEndTimeFallbackReason: realEndTime.reason || "",
-        dailyEndTime: realEndTime.dailyEndTime || "",
-        realEndTimeDailyDate: realEndTime.latestDailyDate || "",
-        isNeedDo: rowData.isNeedDo,
-        isState: rowData.isState
-      });
+      result.push(executionPlan.summaryRow);
     });
 
     if (dailyActualResolver && dailyActualResolver.available) {

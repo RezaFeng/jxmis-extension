@@ -19,6 +19,7 @@
   const WORK_SCRIPT_ID = "cw-batch-work-page-script";
   const WORK_PLAN_SCRIPT_ID = "cw-wbs-plan-script";
   const WORK_DAILY_ACTUAL_SCRIPT_ID = "cw-daily-actual-script";
+  const WORK_CURRENT_WEEK_PLAN_SCRIPT_ID = "cw-current-week-execution-plan-script";
   const WEEKLY_DETAIL_SCRIPT_ID = "cw-weekly-detail-script";
   const WORK_WRAPPER_ID = "cw-batch-work-wrapper";
   const WORK_BTN_ID = "cw-batch-work-btn";
@@ -121,6 +122,7 @@
       injectPageScript(TRANSPORT_SCRIPT_ID, "jxmis-transport.js");
       injectPageScript(WORK_PLAN_SCRIPT_ID, "wbs-plan.js");
       injectPageScript(WORK_DAILY_ACTUAL_SCRIPT_ID, "daily-actual.js");
+      injectPageScript(WORK_CURRENT_WEEK_PLAN_SCRIPT_ID, "current-week-execution-plan.js");
       injectPageScript(WEEKLY_DETAIL_SCRIPT_ID, "weekly-detail.js");
       injectPageScript(WORK_SCRIPT_ID, "page-batch-work.js");
       ensureWorkButton();
