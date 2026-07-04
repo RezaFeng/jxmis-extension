@@ -480,7 +480,8 @@
       if (message.type === "chunk") {
         console.info("[cw-weekly-summary-ai] chunk received", {
           requestId: requestId,
-          length: String(message.text || "").length
+          length: String(message.text || "").length,
+          text: message.text || ""
         });
         postToPage({
           type: "CW_WEEKLY_SUMMARY_AI_CHUNK",

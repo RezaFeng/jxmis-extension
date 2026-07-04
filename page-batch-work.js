@@ -2034,7 +2034,9 @@
       console.info("[cw-weekly-summary-ai] page chunk", {
         requestId: data.requestId,
         chunkLength: String(data.text || "").length,
-        totalLength: text.length
+        totalLength: text.length,
+        chunkText: data.text || "",
+        totalText: text
       });
       setFieldValue(pendingAiRequest.targetField, text);
       return;

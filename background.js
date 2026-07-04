@@ -128,6 +128,12 @@
     };
   }
 
+  function previewText(value, maxLength) {
+    const text = String(value || "");
+    const limit = maxLength || 1000;
+    return text.length > limit ? text.slice(0, limit) + "...[truncated " + text.length + "]" : text;
+  }
+
   function readStreamLine(line, port, streamState) {
     const trimmed = line.trim();
     if (!trimmed || !trimmed.startsWith("data:")) {
@@ -145,6 +151,12 @@
       const text = getChoiceText(choice);
       if (text) {
         streamState.textChunkCount += 1;
+        console.info("[cw-weekly-summary-ai] text chunk content", {
+          requestId: streamState.requestId,
+          index: streamState.textChunkCount,
+          length: text.length,
+          text: text
+        });
         if (streamState.textChunkCount === 1) {
           console.info("[cw-weekly-summary-ai] first text chunk", {
             requestId: streamState.requestId,
@@ -165,6 +177,12 @@
       const reasoningText = getChoiceReasoningText(choice);
       if (reasoningText) {
         streamState.reasoningChunkCount += 1;
+        console.info("[cw-weekly-summary-ai] reasoning chunk content", {
+          requestId: streamState.requestId,
+          index: streamState.reasoningChunkCount,
+          length: reasoningText.length,
+          text: reasoningText
+        });
         if (streamState.reasoningChunkCount === 1) {
           console.info("[cw-weekly-summary-ai] reasoning chunk without content", {
             requestId: streamState.requestId,
@@ -182,7 +200,8 @@
       if (streamState.emptyChunkCount <= 3) {
         console.info("[cw-weekly-summary-ai] stream line without text", Object.assign(
           {
-            requestId: streamState.requestId
+            requestId: streamState.requestId,
+            payloadPreview: previewText(payload, 1000)
           },
           getChoiceShape(choice)
         ));
