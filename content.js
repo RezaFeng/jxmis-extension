@@ -17,6 +17,7 @@
 
   const WORK_SCRIPT_ID = "cw-batch-work-page-script";
   const WORK_PLAN_SCRIPT_ID = "cw-wbs-plan-script";
+  const WORK_DAILY_ACTUAL_SCRIPT_ID = "cw-daily-actual-script";
   const WORK_WRAPPER_ID = "cw-batch-work-wrapper";
   const WORK_BTN_ID = "cw-batch-work-btn";
   const WORK_STATUS_ID = "cw-batch-work-status";
@@ -72,6 +73,7 @@
 
     if (isWorkReportPage()) {
       injectPageScript(WORK_PLAN_SCRIPT_ID, "wbs-plan.js");
+      injectPageScript(WORK_DAILY_ACTUAL_SCRIPT_ID, "daily-actual.js");
       injectPageScript(WORK_SCRIPT_ID, "page-batch-work.js");
       ensureWorkButton();
     }

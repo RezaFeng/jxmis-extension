@@ -34,6 +34,7 @@
       "resources": [
         "page-batch-approve.js",
         "wbs-plan.js",
+        "daily-actual.js",
         "page-batch-work.js",
         "page-batch-weekly-approve.js"
       ],
