@@ -580,28 +580,92 @@
   }
 
   function createUserPrompt(context, dailyTasks) {
-    return JSON.stringify(
-      {
-        projectName: context.projectName,
-        weekStart: context.weekStart,
-        weekEnd: context.weekEnd,
-        dailyTasks: dailyTasks
-      },
-      null,
-      2
-    );
+    if (!window.CwWeeklySummary || typeof window.CwWeeklySummary.createUserPrompt !== "function") {
+      throw new Error("周报总结模块未加载");
+    }
+    return window.CwWeeklySummary.createUserPrompt(context, dailyTasks);
   }
 
   function createSummaryCacheKey(context) {
-    if (context.wkId) {
-      return "wk:" + context.wkId;
+    if (!window.CwWeeklySummary || typeof window.CwWeeklySummary.createSummaryCacheKey !== "function") {
+      throw new Error("周报总结模块未加载");
     }
-    return [
-      "project",
-      context.projectId,
-      context.weekStart,
-      context.weekEnd
-    ].join(":");
+    return window.CwWeeklySummary.createSummaryCacheKey(context);
+  }
+
+  function createSummaryCachePayload(context, dailyTasks, userPrompt) {
+    if (!window.CwWeeklySummary || typeof window.CwWeeklySummary.createSummaryCachePayload !== "function") {
+      throw new Error("周报总结模块未加载");
+    }
+    return window.CwWeeklySummary.createSummaryCachePayload(
+      context,
+      dailyTasks,
+      userPrompt,
+      new Date().toISOString()
+    );
+  }
+
+  function assertDailyTasks(dailyTasks) {
+    if (!window.CwWeeklySummary || typeof window.CwWeeklySummary.assertDailyTasks !== "function") {
+      throw new Error("周报总结模块未加载");
+    }
+    window.CwWeeklySummary.assertDailyTasks(dailyTasks);
+  }
+
+  function assertSummaryText(summaryText) {
+    if (!window.CwWeeklySummary || typeof window.CwWeeklySummary.assertSummaryText !== "function") {
+      throw new Error("周报总结模块未加载");
+    }
+    window.CwWeeklySummary.assertSummaryText(summaryText);
+  }
+
+  function getSummaryProgressType(options) {
+    if (!window.CwWeeklySummary || typeof window.CwWeeklySummary.getProgressType !== "function") {
+      throw new Error("周报总结模块未加载");
+    }
+    return window.CwWeeklySummary.getProgressType(options);
+  }
+
+  function shouldSaveSummary(options) {
+    if (!window.CwWeeklySummary || typeof window.CwWeeklySummary.shouldSaveSummary !== "function") {
+      throw new Error("周报总结模块未加载");
+    }
+    return window.CwWeeklySummary.shouldSaveSummary(options);
+  }
+
+  function createAiSummaryRequestId() {
+    if (!window.CwWeeklySummary || typeof window.CwWeeklySummary.createRequestId !== "function") {
+      throw new Error("周报总结模块未加载");
+    }
+    return window.CwWeeklySummary.createRequestId();
+  }
+
+  function createPendingAiSummaryRequest(requestId, targetField, resolve, reject) {
+    if (!window.CwWeeklySummary || typeof window.CwWeeklySummary.createPendingRequest !== "function") {
+      throw new Error("周报总结模块未加载");
+    }
+    return window.CwWeeklySummary.createPendingRequest(requestId, targetField, resolve, reject);
+  }
+
+  function appendAiSummaryChunk(request, text) {
+    if (!window.CwWeeklySummary || typeof window.CwWeeklySummary.appendChunk !== "function") {
+      throw new Error("周报总结模块未加载");
+    }
+    return window.CwWeeklySummary.appendChunk(request, text);
+  }
+
+  function createWeeklySummaryResult(summaryText, taskCount, userPrompt) {
+    if (!window.CwWeeklySummary || typeof window.CwWeeklySummary.createResult !== "function") {
+      throw new Error("周报总结模块未加载");
+    }
+    return window.CwWeeklySummary.createResult(summaryText, taskCount, userPrompt);
+  }
+
+  function getAiSummaryErrorMessage(data) {
+    if (!window.CwWeeklySummary || typeof window.CwWeeklySummary.getErrorMessage !== "function") {
+      throw new Error("周报总结模块未加载");
+    }
+    return window.CwWeeklySummary.getErrorMessage(data);
   }
 
   function requestContentBridge(type, payload) {
@@ -713,14 +777,8 @@
 
   function requestAiSummary(userPrompt, targetField) {
     return new Promise(function (resolve, reject) {
-      const requestId = String(Date.now()) + "-" + String(Math.random()).slice(2);
-      pendingAiRequest = {
-        requestId: requestId,
-        text: "",
-        targetField: targetField,
-        resolve: resolve,
-        reject: reject
-      };
+      const requestId = createAiSummaryRequestId();
+      pendingAiRequest = createPendingAiSummaryRequest(requestId, targetField, resolve, reject);
 
       post("CW_WEEKLY_SUMMARY_AI_REQUEST", "请求大模型", {
         requestId: requestId,
@@ -745,46 +803,28 @@
   }
 
   async function generateWeeklySummaryWithTasks(context, dailyTasks, targetField, options) {
-    if (!dailyTasks.length) {
-      throw new Error("未找到本周 taskDetail 日报内容");
-    }
+    assertDailyTasks(dailyTasks);
 
     const taskCount = dailyTasks.length;
-    const progressType = options && options.progressType ? options.progressType : "CW_WEEKLY_SUMMARY_PROGRESS";
-    const saveSummary = !(options && options.skipSave);
-    const cacheKey = createSummaryCacheKey(context);
+    const progressType = getSummaryProgressType(options);
+    const saveSummary = shouldSaveSummary(options);
     const userPrompt = createUserPrompt(context, dailyTasks);
+    const cache = createSummaryCachePayload(context, dailyTasks, userPrompt);
 
-    await setSummaryCache(cacheKey, {
-      cacheKey: cacheKey,
-      wkId: context.wkId,
-      projectId: context.projectId,
-      projectName: context.projectName,
-      weekStart: context.weekStart,
-      weekEnd: context.weekEnd,
-      dailyTaskCount: taskCount,
-      userPrompt: userPrompt,
-      cachedAt: new Date().toISOString()
-    }).catch(function (error) {
+    await setSummaryCache(cache.cacheKey, cache.payload).catch(function (error) {
       console.warn("[cw-weekly-summary] cache write failed", error);
     });
 
     post(progressType, "请求大模型，总计 " + taskCount + " 条日报");
     const summaryText = await requestAiSummary(userPrompt, targetField);
-    if (!String(summaryText || "").trim()) {
-      throw new Error("模型返回内容为空");
-    }
+    assertSummaryText(summaryText);
 
     post(progressType, saveSummary ? "保存周报总结" : "回填周报总结，等待批量报工统一保存");
     saveWeeklySummary(summaryText, targetField, {
       skipSave: !saveSummary
     });
 
-    return {
-      summaryText: summaryText,
-      taskCount: taskCount,
-      userPrompt: userPrompt
-    };
+    return createWeeklySummaryResult(summaryText, taskCount, userPrompt);
   }
 
   const HOLIDAY_WORKDAY_OVERRIDES = {
@@ -1911,8 +1951,7 @@
     }
 
     if (data.type === "CW_WEEKLY_SUMMARY_AI_CHUNK") {
-      pendingAiRequest.text += data.text || "";
-      setFieldValue(pendingAiRequest.targetField, pendingAiRequest.text);
+      setFieldValue(pendingAiRequest.targetField, appendAiSummaryChunk(pendingAiRequest, data.text));
       return;
     }
 
@@ -1926,7 +1965,7 @@
     if (data.type === "CW_WEEKLY_SUMMARY_AI_ERROR") {
       const request = pendingAiRequest;
       pendingAiRequest = null;
-      request.reject(new Error(data.message || "模型请求失败"));
+      request.reject(new Error(getAiSummaryErrorMessage(data)));
     }
   });
 })();

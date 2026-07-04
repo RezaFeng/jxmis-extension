@@ -37,6 +37,7 @@
         "wbs-plan.js",
         "daily-actual.js",
         "current-week-execution-plan.js",
+        "weekly-summary.js",
         "weekly-detail.js",
         "page-batch-work.js",
         "page-batch-weekly-approve.js"
