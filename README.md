@@ -8,7 +8,7 @@
   - Injects `批量审批未审批日报`
   - Loads all pending daily reports
   - Approves sequentially
-  - Waits `5000ms + random(0~2999ms)` between requests
+  - Waits `500ms + random(0~999ms)` between requests
   - Reloads page after batch approval completes
 - Work report page
   - Detects route `#/jxpmo/project/WkReportService/id/<dynamic-id>?`
@@ -44,7 +44,7 @@
   - Injects `批量审核`
   - Loads pending weekly reports for the current selected month and production owner
   - Shows `待审核项目列表` with project name and project manager before approval
-  - Approves confirmed reports sequentially with `1000ms + random(0~2999ms)` delay
+  - Approves confirmed reports sequentially with `500ms + random(0~999ms)` delay
   - Rechecks production owner and pending status before every approval
 
 ## Files

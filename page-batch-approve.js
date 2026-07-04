@@ -16,8 +16,8 @@
     achievementComplete: "1",
     achievementQuality: "1",
     approvalComment: "",
-    baseDelayMs: 1000,
-    randomDelayMaxMs: 3000
+    baseDelayMs: 500,
+    randomDelayMaxMs: 1000
   };
 
   function post(type, message, extra) {

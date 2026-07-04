@@ -13,8 +13,8 @@
   const config = {
     pageSize: 25,
     reply: "已核实",
-    baseDelayMs: 1000,
-    randomDelayMaxMs: 3000
+    baseDelayMs: 500,
+    randomDelayMaxMs: 1000
   };
 
   function post(type, message, extra) {
