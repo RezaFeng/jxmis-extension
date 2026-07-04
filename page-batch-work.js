@@ -1558,13 +1558,31 @@
     };
   }
 
-  async function runBatchWork() {
-    const wkForm = await waitForWkFormJS(["saveAll"]);
-    logWbsStep("batch work start", {
-      href: window.location.href,
-      webapp: getWebapp(),
-      baseUrl: getBaseUrl()
-    });
+  function setInputValue(input, value) {
+    if (!input) {
+      return;
+    }
+    input.value = value;
+    input.setAttribute("value", value);
+  }
+
+  function setSelectValue(select, value) {
+    if (!select) {
+      return false;
+    }
+    select.value = value;
+    window.jQuery(select).val(value);
+    return true;
+  }
+
+  function getColumnInputValue(tr, colIndex) {
+    const input = tr && tr.cells && tr.cells[colIndex]
+      ? tr.cells[colIndex].querySelector("input,textarea,select")
+      : null;
+    return input && input.value != null ? String(input.value).trim() : "";
+  }
+
+  function getCurrentWeekExecutionTableState() {
     const $ = window.jQuery;
     const tableId = "WkExecutiongrid";
     const $table = $("#" + tableId);
@@ -1574,14 +1592,14 @@
       throw new Error("未找到 WkExecutiongrid 或 dataTablesDT");
     }
 
-    const CHANGED = DataTablesUtil.const.CHANGED_CLASS_NAME || "changed";
-    const CHANGE_STORE = DataTablesUtil.const.DATA_STORE_CHG || "changeData";
+    const changedClassName = DataTablesUtil.const.CHANGED_CLASS_NAME || "changed";
+    const changeStoreName = DataTablesUtil.const.DATA_STORE_CHG || "changeData";
     const pk = $table.attr("data-pk-column") || "extId";
 
     const rows = dt.rows();
     const dataArr = rows.data().toArray();
     const nodeArr = rows.nodes().toArray();
-    const changeData = $table.data(CHANGE_STORE) || [];
+    const changeData = $table.data(changeStoreName) || [];
     logWbsStep("current week execution table loaded", {
       tableId: tableId,
       rows: dataArr.length,
@@ -1589,24 +1607,23 @@
       changeStoreRows: changeData.length,
       pk: pk
     });
-    const changedPkSet = new Set(changeData.map(function (x) {
-      return x && x[pk];
-    }).filter(Boolean));
 
-    const context = await getWeeklyContext();
-    logWbsStep("weekly context resolved", {
-      wkId: context.wkId,
-      projectId: context.projectId,
-      projectName: context.projectName,
-      weekDate: context.weekDate,
-      weekStart: context.weekStart,
-      weekEnd: context.weekEnd,
-      prodPerson: context.prodPerson,
-      prodPersonName: context.prodPersonName,
-      projectManager: context.projectManager,
-      projectManagerName: context.projectManagerName
-    });
+    return {
+      tableId: tableId,
+      $table: $table,
+      changedClassName: changedClassName,
+      changeStoreName: changeStoreName,
+      pk: pk,
+      dataArr: dataArr,
+      nodeArr: nodeArr,
+      changeData: changeData,
+      changedPkSet: new Set(changeData.map(function (x) {
+        return x && x[pk];
+      }).filter(Boolean))
+    };
+  }
 
+  async function loadWeeklyDailyActual(context, weeklyRows) {
     let dailyActualResolver = {
       available: false,
       error: "notLoaded"
@@ -1616,10 +1633,11 @@
       rawRows: [],
       stats: null
     };
+
     post("CW_BATCH_WORK_RUNNING", "查询本周日报实际工时");
     try {
       dailyActualResult = await fetchWeeklyDailyActualRows(context);
-      dailyActualResolver = createDailyActualResolver(dailyActualResult.rows, dataArr);
+      dailyActualResolver = createDailyActualResolver(dailyActualResult.rows, weeklyRows);
       logWbsStep("weekly daily actual hours loaded", {
         stats: dailyActualResult.stats,
         usableRows: dailyActualResult.rows.length,
@@ -1648,38 +1666,47 @@
       });
     }
 
+    return {
+      dailyActualResolver: dailyActualResolver,
+      dailyActualResult: dailyActualResult
+    };
+  }
+
+  function logUnmatchedWeeklyDailyRows(dailyActualResolver) {
+    if (!dailyActualResolver || !dailyActualResolver.available) {
+      return;
+    }
+
+    const unmatchedDailyRows = dailyActualResolver.dailyRows.filter(function (row) {
+      return !dailyActualResolver.usedDailyKeys.has(row.key);
+    });
+    logWbsStep("weekly daily actual hours unmatched rows", {
+      count: unmatchedDailyRows.length,
+      sample: unmatchedDailyRows.slice(0, 20).map(function (row) {
+        return {
+          date: row.date,
+          wbsId: row.wbsId,
+          taskOwner: row.taskOwner,
+          userFullname: row.userFullname,
+          taskNames: row.taskNames,
+          realHour: row.realHour,
+          realFinishRate: row.realFinishRate,
+          dailyEndTime: row.dailyEndTime,
+          status: row.status
+        };
+      })
+    });
+  }
+
+  function applyCurrentWeekExecutionPlans(tableState, dailyActualResolver) {
     const result = [];
 
-    function setInputValue(input, value) {
-      if (!input) {
-        return;
-      }
-      input.value = value;
-      input.setAttribute("value", value);
-    }
-
-    function setSelectValue(select, value) {
-      if (!select) {
-        return false;
-      }
-      select.value = value;
-      $(select).val(value);
-      return true;
-    }
-
-    function getColumnInputValue(tr, colIndex) {
-      const input = tr && tr.cells && tr.cells[colIndex]
-        ? tr.cells[colIndex].querySelector("input,textarea,select")
-        : null;
-      return input && input.value != null ? String(input.value).trim() : "";
-    }
-
-    dataArr.forEach(function (rowData, i) {
+    tableState.dataArr.forEach(function (rowData, i) {
       if (!rowData) {
         return;
       }
 
-      const tr = nodeArr[i];
+      const tr = tableState.nodeArr[i];
       const planDate = rowData.planDate != null && rowData.planDate !== ""
         ? String(rowData.planDate)
         : "";
@@ -1721,43 +1748,22 @@
         setInputValue(tr.cells[13] && tr.cells[13].querySelector("input,textarea"), nextValues.memo);
         setSelectValue(tr.cells[16] && tr.cells[16].querySelector("select"), nextValues.isState);
 
-        tr.classList.add(CHANGED);
+        tr.classList.add(tableState.changedClassName);
       }
 
-      const rowPk = rowData[pk];
-      if (rowPk && !changedPkSet.has(rowPk)) {
-        changeData.push(rowData);
-        changedPkSet.add(rowPk);
+      const rowPk = rowData[tableState.pk];
+      if (rowPk && !tableState.changedPkSet.has(rowPk)) {
+        tableState.changeData.push(rowData);
+        tableState.changedPkSet.add(rowPk);
       }
 
       result.push(executionPlan.summaryRow);
     });
 
-    if (dailyActualResolver && dailyActualResolver.available) {
-      const unmatchedDailyRows = dailyActualResolver.dailyRows.filter(function (row) {
-        return !dailyActualResolver.usedDailyKeys.has(row.key);
-      });
-      logWbsStep("weekly daily actual hours unmatched rows", {
-        count: unmatchedDailyRows.length,
-        sample: unmatchedDailyRows.slice(0, 20).map(function (row) {
-          return {
-            date: row.date,
-            wbsId: row.wbsId,
-            taskOwner: row.taskOwner,
-            userFullname: row.userFullname,
-            taskNames: row.taskNames,
-            realHour: row.realHour,
-            realFinishRate: row.realFinishRate,
-            dailyEndTime: row.dailyEndTime,
-            status: row.status
-          };
-        })
-      });
-    }
+    logUnmatchedWeeklyDailyRows(dailyActualResolver);
+    tableState.$table.data(tableState.changeStoreName, tableState.changeData);
 
-    $table.data(CHANGE_STORE, changeData);
-
-    const updateModifyData = DataTablesUtil.data.getModifyData(tableId);
+    const updateModifyData = DataTablesUtil.data.getModifyData(tableState.tableId);
     const updateCount = updateModifyData && updateModifyData.update ? updateModifyData.update.length : 0;
 
     console.table(result);
@@ -1768,7 +1774,14 @@
       modifyData: updateModifyData
     });
 
-    let summaryResult = null;
+    return {
+      result: result,
+      updateModifyData: updateModifyData,
+      updateCount: updateCount
+    };
+  }
+
+  async function generateWeeklySummaryBeforeCurrentWeekSave(context, dailyActualResult) {
     post("CW_BATCH_WORK_RUNNING", "基于本次日报数据生成周报总结");
     try {
       const targetField = findCurrWkResultField();
@@ -1783,7 +1796,7 @@
         taskCount: dailyTasks.length,
         sample: dailyTasks.slice(0, 10)
       });
-      summaryResult = await generateWeeklySummaryWithTasks(context, dailyTasks, targetField, {
+      const summaryResult = await generateWeeklySummaryWithTasks(context, dailyTasks, targetField, {
         progressType: "CW_BATCH_WORK_RUNNING",
         skipSave: true
       });
@@ -1791,13 +1804,16 @@
         taskCount: summaryResult.taskCount,
         summaryLength: String(summaryResult.summaryText || "").length
       });
+      return summaryResult;
     } catch (error) {
       warnWbsStep("weekly summary generation failed before current week save", {
         error: error && error.message ? error.message : String(error)
       });
       throw error;
     }
+  }
 
+  async function saveCurrentWeekIfNeeded(wkForm, updateCount, summaryResult, updateModifyData) {
     const shouldSaveCurrentWeek = updateCount > 0 || Boolean(summaryResult && summaryResult.summaryText);
     if (shouldSaveCurrentWeek) {
       logWbsStep("current week saveAll start after summary", {
@@ -1808,20 +1824,62 @@
       wkForm.saveAll();
       logWbsStep("current week saveAll called after summary");
       await delay(800);
-    } else {
-      logWbsStep("skip current week save because no update data and no weekly summary");
+      return true;
     }
+
+    logWbsStep("skip current week save because no update data and no weekly summary");
+    return false;
+  }
+
+  async function runBatchWork() {
+    const wkForm = await waitForWkFormJS(["saveAll"]);
+    logWbsStep("batch work start", {
+      href: window.location.href,
+      webapp: getWebapp(),
+      baseUrl: getBaseUrl()
+    });
+
+    const currentWeekTable = getCurrentWeekExecutionTableState();
+    const context = await getWeeklyContext();
+    logWbsStep("weekly context resolved", {
+      wkId: context.wkId,
+      projectId: context.projectId,
+      projectName: context.projectName,
+      weekDate: context.weekDate,
+      weekStart: context.weekStart,
+      weekEnd: context.weekEnd,
+      prodPerson: context.prodPerson,
+      prodPersonName: context.prodPersonName,
+      projectManager: context.projectManager,
+      projectManagerName: context.projectManagerName
+    });
+
+    const dailyActual = await loadWeeklyDailyActual(context, currentWeekTable.dataArr);
+    const currentWeekPlan = applyCurrentWeekExecutionPlans(
+      currentWeekTable,
+      dailyActual.dailyActualResolver
+    );
+    const summaryResult = await generateWeeklySummaryBeforeCurrentWeekSave(
+      context,
+      dailyActual.dailyActualResult
+    );
+    const shouldSaveCurrentWeek = await saveCurrentWeekIfNeeded(
+      wkForm,
+      currentWeekPlan.updateCount,
+      summaryResult,
+      currentWeekPlan.updateModifyData
+    );
 
     post("CW_BATCH_WORK_RUNNING", "生成下周 WBS 计划明细");
     const nextPlanResult = await fillNextWeekWbsPlan(context);
     const finalModifyData = {
-      execution: DataTablesUtil.data.getModifyData(tableId),
+      execution: DataTablesUtil.data.getModifyData(currentWeekTable.tableId),
       executionNext: nextPlanResult.modifyData
     };
 
-    if (updateCount <= 0 && nextPlanResult.insertCount <= 0) {
+    if (currentWeekPlan.updateCount <= 0 && nextPlanResult.insertCount <= 0) {
       warnWbsStep("skip save because no update/insert data", {
-        updateCount: updateCount,
+        updateCount: currentWeekPlan.updateCount,
         nextInsertCount: nextPlanResult.insertCount,
         nextPlan: nextPlanResult
       });
@@ -1830,26 +1888,26 @@
         nextInsertCount: 0,
         currentSaveTriggered: shouldSaveCurrentWeek,
         weeklySummaryGenerated: Boolean(summaryResult && summaryResult.summaryText),
-        result: result,
+        result: currentWeekPlan.result,
         skipped: true
       };
     }
 
     if (nextPlanResult.missingMajorPersonCount > 0) {
       warnWbsStep("skip executionNext save because missing majorPerson", {
-        updateCount: updateCount,
+        updateCount: currentWeekPlan.updateCount,
         nextInsertCount: nextPlanResult.insertCount,
         missingMajorPersonCount: nextPlanResult.missingMajorPersonCount,
         missingMajorPersonRows: nextPlanResult.missingMajorPersonRows.slice(0, 20)
       });
       return {
-        updateCount: updateCount,
+        updateCount: currentWeekPlan.updateCount,
         nextInsertCount: nextPlanResult.insertCount,
         missingMajorPersonCount: nextPlanResult.missingMajorPersonCount,
         currentSaveTriggered: shouldSaveCurrentWeek,
         weeklySummaryGenerated: Boolean(summaryResult && summaryResult.summaryText),
         nextPlan: nextPlanResult,
-        result: result,
+        result: currentWeekPlan.result,
         skipped: false,
         nextSaveSkipped: true
       };
@@ -1857,23 +1915,23 @@
 
     if (nextPlanResult.insertCount <= 0) {
       logWbsStep("skip executionNext save because no generated insert rows", {
-        updateCount: updateCount,
+        updateCount: currentWeekPlan.updateCount,
         nextInsertCount: nextPlanResult.insertCount
       });
       return {
-        updateCount: updateCount,
+        updateCount: currentWeekPlan.updateCount,
         nextInsertCount: 0,
         currentSaveTriggered: shouldSaveCurrentWeek,
         weeklySummaryGenerated: Boolean(summaryResult && summaryResult.summaryText),
         nextPlan: nextPlanResult,
-        result: result,
+        result: currentWeekPlan.result,
         skipped: false,
         nextSaveSkipped: false
       };
     }
 
     logWbsStep("executionNext saveAll start", {
-      updateCount: updateCount,
+      updateCount: currentWeekPlan.updateCount,
       nextInsertCount: nextPlanResult.insertCount,
       finalModifyData: finalModifyData
     });
@@ -1881,12 +1939,12 @@
     logWbsStep("executionNext saveAll called");
 
     return {
-      updateCount: updateCount,
+      updateCount: currentWeekPlan.updateCount,
       nextInsertCount: nextPlanResult.insertCount,
       currentSaveTriggered: shouldSaveCurrentWeek,
       weeklySummaryGenerated: Boolean(summaryResult && summaryResult.summaryText),
       nextPlan: nextPlanResult,
-      result: result,
+      result: currentWeekPlan.result,
       skipped: false,
       nextSaveSkipped: false
     };
