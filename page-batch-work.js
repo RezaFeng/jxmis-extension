@@ -775,11 +775,18 @@
     field.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  function requestAiSummary(userPrompt, targetField) {
+  function requestAiSummary(userPrompt, targetField, options) {
     return new Promise(function (resolve, reject) {
       const requestId = createAiSummaryRequestId();
       pendingAiRequest = createPendingAiSummaryRequest(requestId, targetField, resolve, reject);
+      pendingAiRequest.progressType =
+        options && options.progressType ? options.progressType : "CW_BATCH_WORK_RUNNING";
+      console.info("[cw-weekly-summary-ai] page request", {
+        requestId: requestId,
+        promptLength: String(userPrompt || "").length
+      });
 
+      post(pendingAiRequest.progressType, "请求大模型，等待扩展后台响应");
       post("CW_WEEKLY_SUMMARY_AI_REQUEST", "请求大模型", {
         requestId: requestId,
         userPrompt: userPrompt
@@ -816,7 +823,9 @@
     });
 
     post(progressType, "请求大模型，总计 " + taskCount + " 条日报");
-    const summaryText = await requestAiSummary(userPrompt, targetField);
+    const summaryText = await requestAiSummary(userPrompt, targetField, {
+      progressType: progressType
+    });
     assertSummaryText(summaryText);
 
     post(progressType, saveSummary ? "保存周报总结" : "回填周报总结，等待批量报工统一保存");
@@ -2008,14 +2017,36 @@
       return;
     }
 
+    if (data.type === "CW_WEEKLY_SUMMARY_AI_STATUS") {
+      const message = data.message || "模型请求处理中";
+      console.info("[cw-weekly-summary-ai] page status", {
+        requestId: data.requestId,
+        message: message
+      });
+      post(pendingAiRequest.progressType || "CW_BATCH_WORK_RUNNING", message, {
+        requestId: data.requestId
+      });
+      return;
+    }
+
     if (data.type === "CW_WEEKLY_SUMMARY_AI_CHUNK") {
-      setFieldValue(pendingAiRequest.targetField, appendAiSummaryChunk(pendingAiRequest, data.text));
+      const text = appendAiSummaryChunk(pendingAiRequest, data.text);
+      console.info("[cw-weekly-summary-ai] page chunk", {
+        requestId: data.requestId,
+        chunkLength: String(data.text || "").length,
+        totalLength: text.length
+      });
+      setFieldValue(pendingAiRequest.targetField, text);
       return;
     }
 
     if (data.type === "CW_WEEKLY_SUMMARY_AI_DONE") {
       const request = pendingAiRequest;
       pendingAiRequest = null;
+      console.info("[cw-weekly-summary-ai] page done", {
+        requestId: data.requestId,
+        totalLength: request.text.length
+      });
       request.resolve(request.text);
       return;
     }
@@ -2023,6 +2054,10 @@
     if (data.type === "CW_WEEKLY_SUMMARY_AI_ERROR") {
       const request = pendingAiRequest;
       pendingAiRequest = null;
+      console.error("[cw-weekly-summary-ai] page error", {
+        requestId: data.requestId,
+        message: getAiSummaryErrorMessage(data)
+      });
       request.reject(new Error(getAiSummaryErrorMessage(data)));
     }
   });

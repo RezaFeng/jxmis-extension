@@ -417,6 +417,17 @@
   }
 
   function startAiSummary(data) {
+    const requestId = data.requestId;
+    console.info("[cw-weekly-summary-ai] content received request", {
+      requestId: requestId,
+      promptLength: String(data.userPrompt || "").length
+    });
+    postToPage({
+      type: "CW_WEEKLY_SUMMARY_AI_STATUS",
+      requestId: requestId,
+      message: "已收到大模型请求，准备连接扩展后台"
+    });
+
     if (aiPort) {
       try {
         aiPort.disconnect();
@@ -429,25 +440,50 @@
     aiPort = chrome.runtime.connect({
       name: "cw-ai-summary"
     });
+    postToPage({
+      type: "CW_WEEKLY_SUMMARY_AI_STATUS",
+      requestId: requestId,
+      message: "已连接扩展后台，准备请求模型"
+    });
 
     aiPort.onMessage.addListener(function (message) {
       if (!message) {
         return;
       }
 
+      if (message.type === "status") {
+        console.info("[cw-weekly-summary-ai] background status", {
+          requestId: requestId,
+          message: message.message || ""
+        });
+        postToPage({
+          type: "CW_WEEKLY_SUMMARY_AI_STATUS",
+          requestId: requestId,
+          message: message.message || "模型请求处理中"
+        });
+        return;
+      }
+
       if (message.type === "chunk") {
+        console.info("[cw-weekly-summary-ai] chunk received", {
+          requestId: requestId,
+          length: String(message.text || "").length
+        });
         postToPage({
           type: "CW_WEEKLY_SUMMARY_AI_CHUNK",
-          requestId: data.requestId,
+          requestId: requestId,
           text: message.text || ""
         });
         return;
       }
 
       if (message.type === "done") {
+        console.info("[cw-weekly-summary-ai] done", {
+          requestId: requestId
+        });
         postToPage({
           type: "CW_WEEKLY_SUMMARY_AI_DONE",
-          requestId: data.requestId
+          requestId: requestId
         });
         aiPort.disconnect();
         aiPort = null;
@@ -455,9 +491,13 @@
       }
 
       if (message.type === "error") {
+        console.error("[cw-weekly-summary-ai] error", {
+          requestId: requestId,
+          message: message.message || "模型请求失败"
+        });
         postToPage({
           type: "CW_WEEKLY_SUMMARY_AI_ERROR",
-          requestId: data.requestId,
+          requestId: requestId,
           message: message.message || "模型请求失败"
         });
         aiPort.disconnect();
@@ -471,6 +511,7 @@
 
     aiPort.postMessage({
       type: "start",
+      requestId: requestId,
       userPrompt: data.userPrompt || ""
     });
   }

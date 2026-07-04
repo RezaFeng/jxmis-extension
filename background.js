@@ -132,6 +132,15 @@
   }
 
   async function streamChat(port, request, signal) {
+    const requestId = request.requestId || "";
+    console.info("[cw-weekly-summary-ai] stream start", {
+      requestId: requestId
+    });
+    port.postMessage({
+      type: "status",
+      message: "扩展后台已开始处理模型请求"
+    });
+
     const config = await getConfig();
     const baseUrl = normalizeBaseUrl(config.baseUrl);
     const model = String(config.model || "").trim();
@@ -147,6 +156,17 @@
     if (!userPrompt) {
       throw new Error("周报总结输入为空");
     }
+
+    console.info("[cw-weekly-summary-ai] fetch model", {
+      requestId: requestId,
+      baseUrl: baseUrl,
+      model: model,
+      promptLength: userPrompt.length
+    });
+    port.postMessage({
+      type: "status",
+      message: "正在请求模型接口：" + model
+    });
 
     const response = await fetch(baseUrl + "/chat/completions", {
       method: "POST",
@@ -174,6 +194,16 @@
       })
     });
 
+    console.info("[cw-weekly-summary-ai] response received", {
+      requestId: requestId,
+      ok: response.ok,
+      status: response.status
+    });
+    port.postMessage({
+      type: "status",
+      message: "模型接口已响应，HTTP " + response.status + "，等待流式内容"
+    });
+
     if (!response.ok) {
       const text = await response.text().catch(function () {
         return "";
@@ -182,6 +212,10 @@
     }
 
     if (!response.body || !response.body.getReader) {
+      port.postMessage({
+        type: "status",
+        message: "模型返回非流式响应，正在解析内容"
+      });
       const json = await response.json();
       const content =
         json &&
@@ -202,6 +236,7 @@
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
     let doneByServer = false;
+    let hasFirstChunk = false;
 
     while (!doneByServer) {
       const result = await reader.read();
@@ -212,6 +247,16 @@
       buffer += decoder.decode(result.value, {
         stream: true
       });
+      if (!hasFirstChunk) {
+        hasFirstChunk = true;
+        console.info("[cw-weekly-summary-ai] first stream bytes", {
+          requestId: requestId
+        });
+        port.postMessage({
+          type: "status",
+          message: "已收到模型流式响应，正在生成周报总结"
+        });
+      }
 
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() || "";
