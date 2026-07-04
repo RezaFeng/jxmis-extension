@@ -78,6 +78,78 @@
     }
   };
 
+  const AUTOMATIONS = [
+    {
+      name: "daily",
+      matcher: isDailyApprovalPage,
+      scripts: [
+        {
+          id: TRANSPORT_SCRIPT_ID,
+          fileName: "jxmis-transport.js"
+        },
+        {
+          id: DAILY_SCRIPT_ID,
+          fileName: "page-batch-approve.js"
+        }
+      ],
+      ensurePanel: ensureDailyPanel
+    },
+    {
+      name: "work",
+      matcher: isWorkReportPage,
+      scripts: [
+        {
+          id: TRANSPORT_SCRIPT_ID,
+          fileName: "jxmis-transport.js"
+        },
+        {
+          id: WORK_PLAN_SCRIPT_ID,
+          fileName: "wbs-plan.js"
+        },
+        {
+          id: WORK_DAILY_ACTUAL_SCRIPT_ID,
+          fileName: "daily-actual.js"
+        },
+        {
+          id: WORK_CURRENT_WEEK_PLAN_SCRIPT_ID,
+          fileName: "current-week-execution-plan.js"
+        },
+        {
+          id: WORK_WEEKLY_SUMMARY_SCRIPT_ID,
+          fileName: "weekly-summary.js"
+        },
+        {
+          id: WEEKLY_DETAIL_SCRIPT_ID,
+          fileName: "weekly-detail.js"
+        },
+        {
+          id: WORK_SCRIPT_ID,
+          fileName: "page-batch-work.js"
+        }
+      ],
+      ensurePanel: ensureWorkButton
+    },
+    {
+      name: "weekly",
+      matcher: isWeeklyApprovalListPage,
+      scripts: [
+        {
+          id: TRANSPORT_SCRIPT_ID,
+          fileName: "jxmis-transport.js"
+        },
+        {
+          id: WEEKLY_DETAIL_SCRIPT_ID,
+          fileName: "weekly-detail.js"
+        },
+        {
+          id: WEEKLY_SCRIPT_ID,
+          fileName: "page-batch-weekly-approve.js"
+        }
+      ],
+      ensurePanel: ensureWeeklyApprovalPanel
+    }
+  ];
+
   function setAutomationStatus(controlName, text, running) {
     updateAutomationStatus(STATUS_CONTROLS[controlName], text, running);
   }
@@ -113,29 +185,15 @@
   }
 
   function ensureAutomation() {
-    if (isDailyApprovalPage()) {
-      injectPageScript(TRANSPORT_SCRIPT_ID, "jxmis-transport.js");
-      injectPageScript(DAILY_SCRIPT_ID, "page-batch-approve.js");
-      ensureDailyPanel();
-    }
-
-    if (isWorkReportPage()) {
-      injectPageScript(TRANSPORT_SCRIPT_ID, "jxmis-transport.js");
-      injectPageScript(WORK_PLAN_SCRIPT_ID, "wbs-plan.js");
-      injectPageScript(WORK_DAILY_ACTUAL_SCRIPT_ID, "daily-actual.js");
-      injectPageScript(WORK_CURRENT_WEEK_PLAN_SCRIPT_ID, "current-week-execution-plan.js");
-      injectPageScript(WORK_WEEKLY_SUMMARY_SCRIPT_ID, "weekly-summary.js");
-      injectPageScript(WEEKLY_DETAIL_SCRIPT_ID, "weekly-detail.js");
-      injectPageScript(WORK_SCRIPT_ID, "page-batch-work.js");
-      ensureWorkButton();
-    }
-
-    if (isWeeklyApprovalListPage()) {
-      injectPageScript(TRANSPORT_SCRIPT_ID, "jxmis-transport.js");
-      injectPageScript(WEEKLY_DETAIL_SCRIPT_ID, "weekly-detail.js");
-      injectPageScript(WEEKLY_SCRIPT_ID, "page-batch-weekly-approve.js");
-      ensureWeeklyApprovalPanel();
-    }
+    AUTOMATIONS.forEach(function (automation) {
+      if (!automation.matcher()) {
+        return;
+      }
+      automation.scripts.forEach(function (scriptConfig) {
+        injectPageScript(scriptConfig.id, scriptConfig.fileName);
+      });
+      automation.ensurePanel();
+    });
   }
 
   function isDailyApprovalPage() {
@@ -561,6 +619,69 @@
     return false;
   }
 
+  const PAGE_MESSAGE_HANDLERS = {};
+
+  PAGE_MESSAGE_HANDLERS[DAILY_SOURCE_PAGE] = {
+    CW_DAILY_APPROVAL_RUNNING: function (data) {
+      setDailyStatus(data.message || "处理中", true);
+    },
+    CW_DAILY_APPROVAL_PROGRESS: function (data) {
+      setDailyStatus(data.message || "处理中", true);
+    },
+    CW_DAILY_APPROVAL_DONE: function (data) {
+      setDailyStatus(data.message || "完成", false);
+      tryRefreshApprovalGrid();
+      if (data.shouldReload) {
+        reloadCurrentPageSoon();
+      }
+    },
+    CW_DAILY_APPROVAL_ERROR: function (data) {
+      setDailyStatus(data.message || "失败", false);
+    }
+  };
+
+  PAGE_MESSAGE_HANDLERS[WORK_SOURCE_PAGE] = {
+    CW_WEEKLY_SUMMARY_AI_REQUEST: function (data) {
+      startAiSummary(data);
+    },
+    CW_WEEKLY_SUMMARY_CACHE_GET: function (data) {
+      handleWeeklySummaryCacheRequest(data);
+    },
+    CW_WEEKLY_SUMMARY_CACHE_SET: function (data) {
+      handleWeeklySummaryCacheRequest(data);
+    },
+    CW_BATCH_WORK_RUNNING: function (data) {
+      setWorkStatus(data.message || "处理中", true);
+    },
+    CW_BATCH_WORK_DONE: function (data) {
+      setWorkStatus(data.message || "完成", false);
+    },
+    CW_BATCH_WORK_ERROR: function (data) {
+      setWorkStatus(data.message || "失败", false);
+    }
+  };
+
+  PAGE_MESSAGE_HANDLERS[WEEKLY_SOURCE_PAGE] = {
+    CW_WEEKLY_APPROVAL_RUNNING: function (data) {
+      setWeeklyStatus(data.message || "处理中", true);
+    },
+    CW_WEEKLY_APPROVAL_PREVIEW: function (data) {
+      setWeeklyStatus(data.message || "待确认", true);
+    },
+    CW_WEEKLY_APPROVAL_PROGRESS: function (data) {
+      setWeeklyStatus(data.message || "处理中", true);
+    },
+    CW_WEEKLY_APPROVAL_DONE: function (data) {
+      setWeeklyStatus(data.message || "完成", false);
+      if (data.shouldReload && !tryRefreshWeeklyGrid()) {
+        reloadCurrentPageSoon();
+      }
+    },
+    CW_WEEKLY_APPROVAL_ERROR: function (data) {
+      setWeeklyStatus(data.message || "失败", false);
+    }
+  };
+
   window.addEventListener("message", function (event) {
     if (event.source !== window) {
       return;
@@ -570,94 +691,10 @@
       return;
     }
 
-    if (data.source === DAILY_SOURCE_PAGE) {
-      if (data.type === "CW_DAILY_APPROVAL_RUNNING") {
-        setDailyStatus(data.message || "处理中", true);
-        return;
-      }
-
-      if (data.type === "CW_DAILY_APPROVAL_PROGRESS") {
-        setDailyStatus(data.message || "处理中", true);
-        return;
-      }
-
-      if (data.type === "CW_DAILY_APPROVAL_DONE") {
-        setDailyStatus(data.message || "完成", false);
-        tryRefreshApprovalGrid();
-        if (data.shouldReload) {
-          reloadCurrentPageSoon();
-        }
-        return;
-      }
-
-      if (data.type === "CW_DAILY_APPROVAL_ERROR") {
-        setDailyStatus(data.message || "失败", false);
-        return;
-      }
-    }
-
-    if (data.source === WORK_SOURCE_PAGE) {
-      if (data.type === "CW_WEEKLY_SUMMARY_AI_REQUEST") {
-        startAiSummary(data);
-        return;
-      }
-
-      if (
-        data.type === "CW_WEEKLY_SUMMARY_CACHE_GET" ||
-        data.type === "CW_WEEKLY_SUMMARY_CACHE_SET"
-      ) {
-        handleWeeklySummaryCacheRequest(data);
-        return;
-      }
-
-      if (data.type === "CW_BATCH_WORK_RUNNING") {
-        setWorkStatus(data.message || "处理中", true);
-        return;
-      }
-
-      if (data.type === "CW_BATCH_WORK_DONE") {
-        setWorkStatus(data.message || "完成", false);
-        return;
-      }
-
-      if (data.type === "CW_BATCH_WORK_ERROR") {
-        setWorkStatus(data.message || "失败", false);
-        return;
-      }
-
-      return;
-    }
-
-    if (data.source === WEEKLY_SOURCE_PAGE) {
-      if (data.type === "CW_WEEKLY_APPROVAL_RUNNING") {
-        setWeeklyStatus(data.message || "处理中", true);
-        return;
-      }
-
-      if (data.type === "CW_WEEKLY_APPROVAL_PREVIEW") {
-        setWeeklyStatus(data.message || "待确认", true);
-        return;
-      }
-
-      if (data.type === "CW_WEEKLY_APPROVAL_PROGRESS") {
-        setWeeklyStatus(data.message || "处理中", true);
-        return;
-      }
-
-      if (data.type === "CW_WEEKLY_APPROVAL_DONE") {
-        setWeeklyStatus(data.message || "完成", false);
-        if (data.shouldReload && !tryRefreshWeeklyGrid()) {
-          reloadCurrentPageSoon();
-        }
-        return;
-      }
-
-      if (data.type === "CW_WEEKLY_APPROVAL_ERROR") {
-        setWeeklyStatus(data.message || "失败", false);
-        return;
-      }
-
-      return;
+    const sourceHandlers = PAGE_MESSAGE_HANDLERS[data.source];
+    const handler = sourceHandlers && sourceHandlers[data.type];
+    if (handler) {
+      handler(data);
     }
   });
 
