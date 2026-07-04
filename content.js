@@ -464,6 +464,19 @@
         return;
       }
 
+      if (message.type === "warning") {
+        console.warn("[cw-weekly-summary-ai] background warning", {
+          requestId: requestId,
+          message: message.message || ""
+        });
+        postToPage({
+          type: "CW_WEEKLY_SUMMARY_AI_STATUS",
+          requestId: requestId,
+          message: message.message || "模型流片段解析警告"
+        });
+        return;
+      }
+
       if (message.type === "chunk") {
         console.info("[cw-weekly-summary-ai] chunk received", {
           requestId: requestId,

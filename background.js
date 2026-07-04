@@ -96,7 +96,39 @@
     );
   }
 
-  function readStreamLine(line, port) {
+  function getChoiceText(choice) {
+    const delta = choice && choice.delta;
+    const message = choice && choice.message;
+    return String(
+      (delta && delta.content) ||
+        (delta && delta.text) ||
+        (choice && choice.text) ||
+        (message && message.content) ||
+        ""
+    );
+  }
+
+  function getChoiceReasoningText(choice) {
+    const delta = choice && choice.delta;
+    const message = choice && choice.message;
+    return String(
+      (delta && (delta.reasoning_content || delta.reasoning)) ||
+        (message && (message.reasoning_content || message.reasoning)) ||
+        ""
+    );
+  }
+
+  function getChoiceShape(choice) {
+    const delta = choice && choice.delta;
+    const message = choice && choice.message;
+    return {
+      choiceKeys: choice ? Object.keys(choice) : [],
+      deltaKeys: delta ? Object.keys(delta) : [],
+      messageKeys: message ? Object.keys(message) : []
+    };
+  }
+
+  function readStreamLine(line, port, streamState) {
     const trimmed = line.trim();
     if (!trimmed || !trimmed.startsWith("data:")) {
       return false;
@@ -110,16 +142,50 @@
     try {
       const json = JSON.parse(payload);
       const choice = json && json.choices && json.choices[0];
-      const delta = choice && choice.delta;
-      const text =
-        (delta && delta.content) ||
-        (choice && choice.message && choice.message.content) ||
-        "";
+      const text = getChoiceText(choice);
       if (text) {
+        streamState.textChunkCount += 1;
+        if (streamState.textChunkCount === 1) {
+          console.info("[cw-weekly-summary-ai] first text chunk", {
+            requestId: streamState.requestId,
+            length: text.length
+          });
+          port.postMessage({
+            type: "status",
+            message: "已解析到模型正文，开始写入周报总结"
+          });
+        }
         port.postMessage({
           type: "chunk",
           text: text
         });
+        return false;
+      }
+
+      const reasoningText = getChoiceReasoningText(choice);
+      if (reasoningText) {
+        streamState.reasoningChunkCount += 1;
+        if (streamState.reasoningChunkCount === 1) {
+          console.info("[cw-weekly-summary-ai] reasoning chunk without content", {
+            requestId: streamState.requestId,
+            length: reasoningText.length
+          });
+          port.postMessage({
+            type: "status",
+            message: "模型正在输出推理内容，等待周报正文片段"
+          });
+        }
+        return false;
+      }
+
+      streamState.emptyChunkCount += 1;
+      if (streamState.emptyChunkCount <= 3) {
+        console.info("[cw-weekly-summary-ai] stream line without text", Object.assign(
+          {
+            requestId: streamState.requestId
+          },
+          getChoiceShape(choice)
+        ));
       }
     } catch (error) {
       port.postMessage({
@@ -237,6 +303,12 @@
     let buffer = "";
     let doneByServer = false;
     let hasFirstChunk = false;
+    const streamState = {
+      requestId: requestId,
+      textChunkCount: 0,
+      reasoningChunkCount: 0,
+      emptyChunkCount: 0
+    };
 
     while (!doneByServer) {
       const result = await reader.read();
@@ -254,14 +326,14 @@
         });
         port.postMessage({
           type: "status",
-          message: "已收到模型流式响应，正在生成周报总结"
+          message: "已收到模型流式响应，等待正文片段"
         });
       }
 
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() || "";
       for (let i = 0; i < lines.length; i += 1) {
-        if (readStreamLine(lines[i], port)) {
+        if (readStreamLine(lines[i], port, streamState)) {
           doneByServer = true;
           break;
         }
@@ -269,7 +341,20 @@
     }
 
     if (buffer && !doneByServer) {
-      readStreamLine(buffer, port);
+      readStreamLine(buffer, port, streamState);
+    }
+
+    console.info("[cw-weekly-summary-ai] stream parsed", {
+      requestId: requestId,
+      textChunkCount: streamState.textChunkCount,
+      reasoningChunkCount: streamState.reasoningChunkCount,
+      emptyChunkCount: streamState.emptyChunkCount
+    });
+    if (streamState.textChunkCount <= 0) {
+      if (streamState.reasoningChunkCount > 0) {
+        throw new Error("模型流结束但没有返回正文内容，仅收到推理字段 reasoning_content");
+      }
+      throw new Error("模型流结束但没有解析到正文内容，请检查模型流式响应字段");
     }
   }
 
