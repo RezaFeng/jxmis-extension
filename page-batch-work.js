@@ -2029,6 +2029,16 @@
       return;
     }
 
+    if (data.type === "CW_WEEKLY_SUMMARY_AI_REASONING") {
+      console.info("[cw-weekly-summary-ai] page reasoning", {
+        requestId: data.requestId,
+        index: data.index,
+        length: String(data.text || "").length,
+        text: data.text || ""
+      });
+      return;
+    }
+
     if (data.type === "CW_WEEKLY_SUMMARY_AI_CHUNK") {
       const text = appendAiSummaryChunk(pendingAiRequest, data.text);
       console.info("[cw-weekly-summary-ai] page chunk", {

@@ -477,6 +477,22 @@
         return;
       }
 
+      if (message.type === "reasoning") {
+        console.info("[cw-weekly-summary-ai] reasoning received", {
+          requestId: requestId,
+          index: message.index,
+          length: String(message.text || "").length,
+          text: message.text || ""
+        });
+        postToPage({
+          type: "CW_WEEKLY_SUMMARY_AI_REASONING",
+          requestId: requestId,
+          index: message.index,
+          text: message.text || ""
+        });
+        return;
+      }
+
       if (message.type === "chunk") {
         console.info("[cw-weekly-summary-ai] chunk received", {
           requestId: requestId,
