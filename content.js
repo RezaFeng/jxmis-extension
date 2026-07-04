@@ -129,13 +129,6 @@
         return;
       }
 
-      const confirmed = window.confirm(
-        "将逐个审批全部未审批日报，间隔 5 秒 + 随机 0-3 秒。是否继续？"
-      );
-      if (!confirmed) {
-        return;
-      }
-
       window.postMessage(
         {
           source: DAILY_SOURCE_CONTENT,
