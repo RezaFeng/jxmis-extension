@@ -32,6 +32,7 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "jxmis-transport.js",
         "page-batch-approve.js",
         "wbs-plan.js",
         "daily-actual.js",

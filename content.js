@@ -9,6 +9,7 @@
   window.__cwDailyApprovalContentLoaded = true;
 
   const DAILY_SCRIPT_ID = "cw-daily-approval-page-script";
+  const TRANSPORT_SCRIPT_ID = "cw-jxmis-transport-script";
   const DAILY_PANEL_ID = "cw-daily-approval-panel";
   const DAILY_BTN_ID = "cw-daily-approval-btn";
   const DAILY_STATUS_ID = "cw-daily-approval-status";
@@ -67,11 +68,13 @@
 
   function ensureAutomation() {
     if (isDailyApprovalPage()) {
+      injectPageScript(TRANSPORT_SCRIPT_ID, "jxmis-transport.js");
       injectPageScript(DAILY_SCRIPT_ID, "page-batch-approve.js");
       ensureDailyPanel();
     }
 
     if (isWorkReportPage()) {
+      injectPageScript(TRANSPORT_SCRIPT_ID, "jxmis-transport.js");
       injectPageScript(WORK_PLAN_SCRIPT_ID, "wbs-plan.js");
       injectPageScript(WORK_DAILY_ACTUAL_SCRIPT_ID, "daily-actual.js");
       injectPageScript(WORK_SCRIPT_ID, "page-batch-work.js");
@@ -79,6 +82,7 @@
     }
 
     if (isWeeklyApprovalListPage()) {
+      injectPageScript(TRANSPORT_SCRIPT_ID, "jxmis-transport.js");
       injectPageScript(WEEKLY_SCRIPT_ID, "page-batch-weekly-approve.js");
       ensureWeeklyApprovalPanel();
     }

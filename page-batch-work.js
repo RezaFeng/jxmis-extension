@@ -17,17 +17,7 @@
   };
 
   function post(type, message, extra) {
-    window.postMessage(
-      Object.assign(
-        {
-          source: SOURCE_PAGE,
-          type: type,
-          message: message
-        },
-        extra || {}
-      ),
-      "*"
-    );
+    window.CwJxmisTransport.post(window, SOURCE_PAGE, type, message, extra);
   }
 
   function logWbsStep(step, detail) {
@@ -71,44 +61,19 @@
   }
 
   function getWebapp() {
-    const raw = String(window.localStorage.getItem("webapp") || "/jxpmo").trim();
-    if (!raw || raw === "/") {
-      return "";
-    }
-    return raw.charAt(0) === "/" ? raw.replace(/\/+$/, "") : "/" + raw.replace(/\/+$/, "");
+    return window.CwJxmisTransport.getWebapp(window.localStorage);
   }
 
   function getBaseUrl() {
-    return window.location.origin + getWebapp();
+    return window.CwJxmisTransport.getBaseUrl(window.location, window.localStorage);
   }
 
   async function assertOk(response, label) {
-    if (response.ok) {
-      return response;
-    }
-    const text = await response.text().catch(function () {
-      return "";
-    });
-    throw new Error(label + " failed: HTTP " + response.status + " " + response.statusText + " " + text);
+    return window.CwJxmisTransport.assertOk(response, label);
   }
 
   async function fetchJson(url, label) {
-    let response;
-    try {
-      response = await fetch(url, {
-        method: "GET",
-        credentials: "same-origin",
-        headers: {
-          Accept: "application/json, text/javascript, */*; q=0.01",
-          "X-Requested-With": "XMLHttpRequest"
-        },
-        cache: "no-store"
-      });
-    } catch (error) {
-      throw new Error(label + " failed: " + (error && error.message ? error.message : String(error)) + " url=" + url);
-    }
-    await assertOk(response, label);
-    return response.json();
+    return window.CwJxmisTransport.fetchJson(fetch, url, label);
   }
 
   function readControlValue(names) {
