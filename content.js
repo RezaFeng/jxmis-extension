@@ -33,6 +33,25 @@
   let weeklyRunning = false;
   let aiPort = null;
 
+  function updateAutomationStatus(config, text, running) {
+    const status = document.getElementById(config.statusId);
+    const button = document.getElementById(config.buttonId);
+    if (typeof running === "boolean") {
+      config.setRunning(running);
+    }
+    const isRunning = config.isRunning();
+    if (status) {
+      status.textContent = text;
+      status.style.color = isRunning ? "#0b73f6" : "#666";
+    }
+    if (button) {
+      button.disabled = isRunning;
+      button.style.opacity = isRunning ? "0.7" : "1";
+      button.style.cursor = isRunning ? "not-allowed" : "pointer";
+      button.textContent = isRunning ? config.runningText : config.idleText;
+    }
+  }
+
   function injectPageScript(id, fileName) {
     if (document.getElementById(id)) {
       return;
@@ -154,21 +173,22 @@
   }
 
   function setDailyStatus(text, running) {
-    const status = document.getElementById(DAILY_STATUS_ID);
-    const button = document.getElementById(DAILY_BTN_ID);
-    if (typeof running === "boolean") {
-      dailyRunning = running;
-    }
-    if (status) {
-      status.textContent = text;
-      status.style.color = dailyRunning ? "#0b73f6" : "#666";
-    }
-    if (button) {
-      button.disabled = dailyRunning;
-      button.style.opacity = dailyRunning ? "0.7" : "1";
-      button.style.cursor = dailyRunning ? "not-allowed" : "pointer";
-      button.textContent = dailyRunning ? "审批中..." : "批量审批未审批日报";
-    }
+    updateAutomationStatus(
+      {
+        statusId: DAILY_STATUS_ID,
+        buttonId: DAILY_BTN_ID,
+        isRunning: function () {
+          return dailyRunning;
+        },
+        setRunning: function (runningValue) {
+          dailyRunning = runningValue;
+        },
+        runningText: "审批中...",
+        idleText: "批量审批未审批日报"
+      },
+      text,
+      running
+    );
   }
 
   function tryRefreshApprovalGrid() {
@@ -280,21 +300,22 @@
   }
 
   function setWorkStatus(text, running) {
-    const status = document.getElementById(WORK_STATUS_ID);
-    const button = document.getElementById(WORK_BTN_ID);
-    if (typeof running === "boolean") {
-      workRunning = running;
-    }
-    if (status) {
-      status.textContent = text;
-      status.style.color = workRunning ? "#0b73f6" : "#666";
-    }
-    if (button) {
-      button.disabled = workRunning;
-      button.style.opacity = workRunning ? "0.7" : "1";
-      button.style.cursor = workRunning ? "not-allowed" : "pointer";
-      button.textContent = workRunning ? "报工中..." : "批量报工";
-    }
+    updateAutomationStatus(
+      {
+        statusId: WORK_STATUS_ID,
+        buttonId: WORK_BTN_ID,
+        isRunning: function () {
+          return workRunning;
+        },
+        setRunning: function (runningValue) {
+          workRunning = runningValue;
+        },
+        runningText: "报工中...",
+        idleText: "批量报工"
+      },
+      text,
+      running
+    );
   }
 
   function postToPage(message) {
@@ -469,21 +490,22 @@
   }
 
   function setWeeklyStatus(text, running) {
-    const status = document.getElementById(WEEKLY_STATUS_ID);
-    const button = document.getElementById(WEEKLY_BTN_ID);
-    if (typeof running === "boolean") {
-      weeklyRunning = running;
-    }
-    if (status) {
-      status.textContent = text;
-      status.style.color = weeklyRunning ? "#0b73f6" : "#666";
-    }
-    if (button) {
-      button.disabled = weeklyRunning;
-      button.style.opacity = weeklyRunning ? "0.7" : "1";
-      button.style.cursor = weeklyRunning ? "not-allowed" : "pointer";
-      button.textContent = weeklyRunning ? "审核中..." : "批量审核";
-    }
+    updateAutomationStatus(
+      {
+        statusId: WEEKLY_STATUS_ID,
+        buttonId: WEEKLY_BTN_ID,
+        isRunning: function () {
+          return weeklyRunning;
+        },
+        setRunning: function (runningValue) {
+          weeklyRunning = runningValue;
+        },
+        runningText: "审核中...",
+        idleText: "批量审核"
+      },
+      text,
+      running
+    );
   }
 
   function tryRefreshWeeklyGrid() {
