@@ -114,11 +114,11 @@
 
 ## Done
 
-- [ ] 所有修改过的符号已完成影响分析，并记录风险等级。
-- [ ] `node --check content.js page-batch-approve.js page-batch-weekly-approve.js page-batch-work.js` 通过。
-- [ ] `npm test` 通过。
-- [ ] 提交前变更检测确认影响范围符合预期。
+- [x] 所有修改过的符号已完成影响分析，并记录风险等级。
+- [x] `node --check content.js page-batch-approve.js page-batch-weekly-approve.js page-batch-work.js` 通过。
+- [x] `npm test` 通过。
+- [ ] 提交前变更检测确认影响范围符合预期。MCP `detect_changes` 在最终重试时 transport closed，需提交前重跑。
 - [ ] 手动验证日报批量审批可启动、进度更新、完成后刷新。
 - [ ] 手动验证批量报工可写当前周执行表、生成下周 WBS 计划并保存。
 - [ ] 手动验证周报批量审核可预览、确认、逐条审核、完成后刷新。
-- [ ] 本轮没有修改 AI 周报总结链路、`normalizeWeeklyDetail` 共享逻辑或目录加载结构。
+- [x] 本轮没有修改 AI 周报总结链路或 `normalizeWeeklyDetail` 共享逻辑；为加载 WBS 纯逻辑模块，已最小修改 `manifest.json` 和 work 页面脚本注入顺序。

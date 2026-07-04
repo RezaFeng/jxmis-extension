@@ -42,8 +42,11 @@
   }
 
   function getWebapp() {
-    const webapp = window.localStorage.getItem("webapp") || "/jxpmo";
-    return webapp === "/" ? "" : webapp;
+    const raw = String(window.localStorage.getItem("webapp") || "/jxpmo").trim();
+    if (!raw || raw === "/") {
+      return "";
+    }
+    return raw.charAt(0) === "/" ? raw.replace(/\/+$/, "") : "/" + raw.replace(/\/+$/, "");
   }
 
   function getBaseUrl() {
@@ -61,14 +64,20 @@
   }
 
   async function fetchJson(url, label) {
-    const response = await fetch(url, {
-      method: "GET",
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/json, text/javascript, */*; q=0.01",
-        "X-Requested-With": "XMLHttpRequest"
-      }
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "GET",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json, text/javascript, */*; q=0.01",
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        cache: "no-store"
+      });
+    } catch (error) {
+      throw new Error(label + " failed: " + (error && error.message ? error.message : String(error)) + " url=" + url);
+    }
     await assertOk(response, label);
     return response.json();
   }

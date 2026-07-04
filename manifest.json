@@ -33,6 +33,7 @@
     {
       "resources": [
         "page-batch-approve.js",
+        "wbs-plan.js",
         "page-batch-work.js",
         "page-batch-weekly-approve.js"
       ],

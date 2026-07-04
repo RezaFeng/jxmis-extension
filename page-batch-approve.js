@@ -45,8 +45,11 @@
   }
 
   function getWebapp() {
-    const webapp = window.localStorage.getItem("webapp") || "/jxpmo";
-    return webapp === "/" ? "" : webapp;
+    const raw = String(window.localStorage.getItem("webapp") || "/jxpmo").trim();
+    if (!raw || raw === "/") {
+      return "";
+    }
+    return raw.charAt(0) === "/" ? raw.replace(/\/+$/, "") : "/" + raw.replace(/\/+$/, "");
   }
 
   function getBaseUrl() {
