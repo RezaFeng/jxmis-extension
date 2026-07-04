@@ -260,6 +260,27 @@
       message: "正在请求模型接口：" + model
     });
 
+    const requestBody = {
+      model: model,
+      stream: true,
+      thinking: {
+        type: enableThinking ? "enabled" : "disabled"
+      },
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt
+        },
+        {
+          role: "user",
+          content: userPrompt
+        }
+      ]
+    };
+    if (enableThinking) {
+      requestBody.reasoning_effort = "high";
+    }
+
     const response = await fetch(baseUrl + "/chat/completions", {
       method: "POST",
       signal: signal,
@@ -270,21 +291,7 @@
         },
         authHeaders(config)
       ),
-      body: JSON.stringify({
-        model: model,
-        stream: true,
-        enable_thinking: enableThinking,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: userPrompt
-          }
-        ]
-      })
+      body: JSON.stringify(requestBody)
     });
 
     console.info("[cw-weekly-summary-ai] response received", {
