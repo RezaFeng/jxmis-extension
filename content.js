@@ -21,6 +21,7 @@
   const WORK_DAILY_ACTUAL_SCRIPT_ID = "cw-daily-actual-script";
   const WORK_CURRENT_WEEK_PLAN_SCRIPT_ID = "cw-current-week-execution-plan-script";
   const WORK_WEEKLY_SUMMARY_SCRIPT_ID = "cw-weekly-summary-script";
+  const WORK_WEEKLY_CONTEXT_SCRIPT_ID = "cw-weekly-context-script";
   const WEEKLY_DETAIL_SCRIPT_ID = "cw-weekly-detail-script";
   const WORK_WRAPPER_ID = "cw-batch-work-wrapper";
   const WORK_BTN_ID = "cw-batch-work-btn";
@@ -121,6 +122,10 @@
         {
           id: WEEKLY_DETAIL_SCRIPT_ID,
           fileName: "weekly-detail.js"
+        },
+        {
+          id: WORK_WEEKLY_CONTEXT_SCRIPT_ID,
+          fileName: "weekly-context.js"
         },
         {
           id: WORK_SCRIPT_ID,

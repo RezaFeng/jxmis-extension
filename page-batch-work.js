@@ -16,6 +16,13 @@
     pageConcurrency: 2
   };
 
+  function getWeeklyContextModule() {
+    if (!window.CwWeeklyContext) {
+      throw new Error("weekly context module not loaded");
+    }
+    return window.CwWeeklyContext;
+  }
+
   function post(type, message, extra) {
     window.CwJxmisTransport.post(window, SOURCE_PAGE, type, message, extra);
   }
@@ -76,78 +83,16 @@
     return window.CwJxmisTransport.fetchJson(fetch, url, label);
   }
 
-  function readControlValue(names) {
-    for (let i = 0; i < names.length; i += 1) {
-      const name = names[i];
-      const selectors = [
-        "[name='" + name + "']",
-        "#" + name,
-        "[data-name='" + name + "']"
-      ];
-      for (let j = 0; j < selectors.length; j += 1) {
-        const el = document.querySelector(selectors[j]);
-        if (el && el.value != null && String(el.value).trim() !== "") {
-          return String(el.value).trim();
-        }
-        if (el && el.textContent != null && String(el.textContent).trim() !== "") {
-          return String(el.textContent).trim();
-        }
-      }
-    }
-    return "";
-  }
-
-  function parseWkIdFromLocation() {
-    const text = window.location.href + " " + window.location.hash;
-    const match = text.match(/\/WkReportService\/id\/([^/?#\s]+)/);
-    return match ? decodeURIComponent(match[1]) : "";
-  }
-
   function parseDate(value) {
-    const match = String(value || "").match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
-    if (!match) {
-      return null;
-    }
-    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return getWeeklyContextModule().parseDate(value);
   }
 
   function formatDate(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return year + "-" + month + "-" + day;
+    return getWeeklyContextModule().formatDate(date);
   }
 
   function addDays(date, days) {
-    const next = new Date(date.getTime());
-    next.setDate(next.getDate() + days);
-    return next;
-  }
-
-  function mondayOf(date) {
-    const day = date.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    return addDays(date, diff);
-  }
-
-  function normalizeWeekRange(weekDate) {
-    const matches = String(weekDate || "").match(/\d{4}-\d{1,2}-\d{1,2}/g) || [];
-    const first = matches[0] ? parseDate(matches[0]) : null;
-    const second = matches[1] ? parseDate(matches[1]) : null;
-
-    if (first && second && first.getDay() === 0 && second.getDay() === 6) {
-      return {
-        start: addDays(first, 1),
-        end: addDays(second, 1)
-      };
-    }
-
-    const base = first || new Date();
-    const start = mondayOf(base);
-    return {
-      start: start,
-      end: addDays(start, 6)
-    };
+    return getWeeklyContextModule().addDays(date, days);
   }
 
   function normalizeWeeklyDetail(data) {
@@ -157,99 +102,14 @@
     return window.CwWeeklyDetail.normalizeWeeklyDetail(data);
   }
 
-  async function fetchWeeklyById(wkId) {
-    const params = new URLSearchParams({
-      queryType: "all",
-      queryName: "queryByProjectInfo",
-      wkId: String(wkId)
-    });
-
-    const data = await fetchJson(
-      getBaseUrl() + "/rest/project/queryByProjectInfosService/query?" + params.toString(),
-      "fetch weekly " + wkId
-    );
-    return normalizeWeeklyDetail(data);
-  }
-
-  async function fetchWeeklyRowsByProject(projectId) {
-    const rows = [];
-    let page = 1;
-
-    while (page <= 4) {
-      const params = new URLSearchParams({
-        queryName: "queryByProjectId",
-        filterQuery: "true",
-        queryType: "page",
-        projectId: String(projectId),
-        draw: String(page),
-        page: String(page),
-        start: String((page - 1) * 25),
-        length: "25",
-        rows: "25"
-      });
-      const data = await fetchJson(
-        getBaseUrl() + "/rest/project/WkReportService/query?" + params.toString(),
-        "fetch weekly reports page " + page
-      );
-      const pageRows = Array.isArray(data && data.rows) ? data.rows : [];
-      rows.push.apply(rows, pageRows);
-      const pageCount = Number(data && data.pageCount) || 0;
-      if (!pageCount || page >= pageCount || !pageRows.length) {
-        break;
-      }
-      page += 1;
-    }
-
-    return rows;
-  }
-
   async function getWeeklyContext() {
-    const locationWkId = parseWkIdFromLocation();
-    const wkId = readControlValue(["wkId"]) || locationWkId;
-    let projectId = readControlValue(["projectId", "queryProjectId"]);
-    let row = null;
-
-    if (wkId) {
-      row = await fetchWeeklyById(wkId).catch(function () {
-        return null;
-      });
-    }
-
-    if (!row && projectId) {
-      const rows = await fetchWeeklyRowsByProject(projectId);
-      row =
-        rows.find(function (item) {
-          return wkId && String(item && item.wkId) === String(wkId);
-        }) ||
-        rows.find(function (item) {
-          return String(item && item.status) === "10";
-        }) ||
-        rows[0] ||
-        null;
-    }
-
-    projectId = projectId || String((row && row.projectId) || "");
-    if (!projectId) {
-      throw new Error("未找到当前项目 projectId");
-    }
-
-    const weekDate = readControlValue(["weekDate", "wkDate"]) || String((row && row.weekDate) || "");
-    const range = normalizeWeekRange(weekDate);
-
-    return {
-      wkId: wkId || String((row && row.wkId) || ""),
-      projectId: projectId,
-      projectName: readControlValue(["projectName"]) || String((row && row.projectName) || ""),
-      prodPerson: readControlValue(["prodPerson"]) || String((row && row.prodPerson) || ""),
-      prodPersonName: readControlValue(["prodPersonName"]) || String((row && row.prodPersonName) || ""),
-      projectManager: readControlValue(["projectManager"]) || String((row && row.projectManager) || ""),
-      projectManagerName: readControlValue(["projectManagerName"]) || String((row && row.projectManagerName) || ""),
-      weekDate: weekDate,
-      weekStart: formatDate(range.start),
-      weekEnd: formatDate(range.end),
-      startDate: range.start,
-      endDate: range.end
-    };
+    return getWeeklyContextModule().getWeeklyContext({
+      document: document,
+      location: window.location,
+      fetchJson: fetchJson,
+      getBaseUrl: getBaseUrl,
+      normalizeWeeklyDetail: normalizeWeeklyDetail
+    });
   }
 
   function dateInRange(value, startDate, endDate) {
