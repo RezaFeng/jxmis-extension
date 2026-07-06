@@ -18,59 +18,31 @@
   };
 
   function post(type, message, extra) {
-    window.postMessage(
-      Object.assign(
-        {
-          source: SOURCE_PAGE,
-          type: type,
-          message: message
-        },
-        extra || {}
-      ),
-      "*"
-    );
+    window.CwJxmisTransport.post(window, SOURCE_PAGE, type, message, extra);
   }
 
   function sleep(ms) {
-    return new Promise(function (resolve) {
-      window.setTimeout(resolve, ms);
-    });
+    return window.CwJxmisTransport.sleep(window, ms);
   }
 
   function randomDelay() {
-    return config.baseDelayMs + Math.floor(Math.random() * config.randomDelayMaxMs);
+    return window.CwJxmisTransport.randomDelay(config);
   }
 
   function getWebapp() {
-    const webapp = window.localStorage.getItem("webapp") || "/jxpmo";
-    return webapp === "/" ? "" : webapp;
+    return window.CwJxmisTransport.getWebapp(window.localStorage);
   }
 
   function getBaseUrl() {
-    return window.location.origin + getWebapp();
+    return window.CwJxmisTransport.getBaseUrl(window.location, window.localStorage);
   }
 
   async function assertOk(response, label) {
-    if (response.ok) {
-      return response;
-    }
-    const text = await response.text().catch(function () {
-      return "";
-    });
-    throw new Error(label + " failed: HTTP " + response.status + " " + response.statusText + " " + text);
+    return window.CwJxmisTransport.assertOk(response, label);
   }
 
   async function fetchJson(url, label) {
-    const response = await fetch(url, {
-      method: "GET",
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/json, text/javascript, */*; q=0.01",
-        "X-Requested-With": "XMLHttpRequest"
-      }
-    });
-    await assertOk(response, label);
-    return response.json();
+    return window.CwJxmisTransport.fetchJson(fetch, url, label);
   }
 
   async function fetchCurrentUser() {
@@ -193,22 +165,10 @@
   }
 
   function normalizeWeeklyDetail(data) {
-    if (Array.isArray(data)) {
-      return data[0] || null;
+    if (!window.CwWeeklyDetail || typeof window.CwWeeklyDetail.normalizeWeeklyDetail !== "function") {
+      throw new Error("weekly detail module not loaded");
     }
-    if (data && Array.isArray(data.rows)) {
-      return data.rows[0] || null;
-    }
-    if (data && Array.isArray(data.data)) {
-      return data.data[0] || null;
-    }
-    if (data && data.data && typeof data.data === "object") {
-      return data.data;
-    }
-    if (data && data.result && typeof data.result === "object") {
-      return data.result;
-    }
-    return data || null;
+    return window.CwWeeklyDetail.normalizeWeeklyDetail(data);
   }
 
   async function fetchWeeklyById(wkId) {

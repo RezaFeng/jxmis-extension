@@ -10,6 +10,15 @@
       <h1>AI 周报配置</h1>
 
       <label>
+        <span>模型厂商</span>
+        <select id="provider">
+          <option value="deepseek">DeepSeek</option>
+          <option value="modelscope">ModelScope</option>
+          <option value="openai-compatible">OpenAI-compatible</option>
+        </select>
+      </label>
+
+      <label>
         <span>模型 URL</span>
         <input id="baseUrl" type="url" placeholder="https://api.openai.com/v1">
       </label>
@@ -23,6 +32,11 @@
         <span>模型</span>
         <input id="model" list="modelList" placeholder="点击刷新后选择或手动输入">
         <datalist id="modelList"></datalist>
+      </label>
+
+      <label class="checkbox-row">
+        <input id="enableThinking" type="checkbox">
+        <span>打开思考模式</span>
       </label>
 
       <div class="row">

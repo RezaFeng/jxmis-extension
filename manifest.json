@@ -32,7 +32,14 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "jxmis-transport.js",
         "page-batch-approve.js",
+        "wbs-plan.js",
+        "daily-actual.js",
+        "current-week-execution-plan.js",
+        "weekly-summary.js",
+        "weekly-detail.js",
+        "weekly-context.js",
         "page-batch-work.js",
         "page-batch-weekly-approve.js"
       ],

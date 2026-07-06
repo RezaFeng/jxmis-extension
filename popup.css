@@ -30,7 +30,20 @@ label {
   font-weight: 600;
 }
 
+.checkbox-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.checkbox-row input {
+  width: auto;
+  margin: 0;
+}
+
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid #c8d0d9;
