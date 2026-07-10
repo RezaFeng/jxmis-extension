@@ -120,3 +120,10 @@ test("creates summary result and error messages", function () {
   assert.equal(weeklySummary.getErrorMessage({ message: "bad" }), "bad");
   assert.equal(weeklySummary.getErrorMessage({}), "模型请求失败");
 });
+
+test("detects missing AI model configuration errors", function () {
+  assert.equal(weeklySummary.isMissingConfigError(new Error("请先配置模型 URL")), true);
+  assert.equal(weeklySummary.isMissingConfigError(new Error("请先配置模型")), true);
+  assert.equal(weeklySummary.isMissingConfigError(new Error("未配置大模型，已跳过周报总结")), true);
+  assert.equal(weeklySummary.isMissingConfigError(new Error("模型请求失败: HTTP 401")), false);
+});

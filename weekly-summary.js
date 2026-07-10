@@ -101,6 +101,13 @@
     return (data && data.message) || "模型请求失败";
   }
 
+  function isMissingConfigError(error) {
+    const message = String((error && error.message) || error || "");
+    return message.indexOf("请先配置模型 URL") >= 0 ||
+      message.indexOf("请先配置模型") >= 0 ||
+      message.indexOf("未配置大模型") >= 0;
+  }
+
   return {
     createUserPrompt: createUserPrompt,
     createSummaryCacheKey: createSummaryCacheKey,
@@ -113,6 +120,7 @@
     createPendingRequest: createPendingRequest,
     appendChunk: appendChunk,
     createResult: createResult,
-    getErrorMessage: getErrorMessage
+    getErrorMessage: getErrorMessage,
+    isMissingConfigError: isMissingConfigError
   };
 });

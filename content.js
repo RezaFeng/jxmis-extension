@@ -179,14 +179,57 @@
   }
 
   function injectPageScript(id, fileName) {
-    if (document.getElementById(id)) {
-      return;
+    return new Promise(function (resolve, reject) {
+      const existing = document.getElementById(id);
+      if (existing) {
+        if (existing.dataset.cwLoading === "true") {
+          existing.addEventListener("load", resolve, { once: true });
+          existing.addEventListener("error", reject, { once: true });
+          return;
+        }
+        resolve();
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.id = id;
+      script.src = chrome.runtime.getURL(fileName);
+      script.async = false;
+      script.dataset.cwLoading = "true";
+      script.addEventListener("load", function () {
+        script.dataset.cwLoading = "false";
+        script.dataset.cwLoaded = "true";
+        resolve();
+      }, { once: true });
+      script.addEventListener("error", function () {
+        script.dataset.cwLoading = "false";
+        reject(new Error("load page script failed: " + fileName));
+      }, { once: true });
+      (document.head || document.documentElement).appendChild(script);
+    });
+  }
+
+  const automationScriptLoads = {};
+
+  function loadAutomationScripts(automation) {
+    if (!automationScriptLoads[automation.name]) {
+      automationScriptLoads[automation.name] = automation.scripts.reduce(function (chain, scriptConfig) {
+        return chain.then(function () {
+          return injectPageScript(scriptConfig.id, scriptConfig.fileName);
+        });
+      }, Promise.resolve()).catch(function (error) {
+        delete automationScriptLoads[automation.name];
+        throw error;
+      });
     }
-    const script = document.createElement("script");
-    script.id = id;
-    script.src = chrome.runtime.getURL(fileName);
-    script.async = false;
-    (document.head || document.documentElement).appendChild(script);
+    return automationScriptLoads[automation.name];
+  }
+
+  function handleAutomationLoadError(automation, error) {
+    console.error("[cw-content] load automation scripts failed", {
+      automation: automation.name,
+      error: error && error.message ? error.message : String(error)
+    });
   }
 
   function ensureAutomation() {
@@ -194,10 +237,13 @@
       if (!automation.matcher()) {
         return;
       }
-      automation.scripts.forEach(function (scriptConfig) {
-        injectPageScript(scriptConfig.id, scriptConfig.fileName);
-      });
-      automation.ensurePanel();
+      loadAutomationScripts(automation)
+        .then(function () {
+          automation.ensurePanel();
+        })
+        .catch(function (error) {
+          handleAutomationLoadError(automation, error);
+        });
     });
   }
 

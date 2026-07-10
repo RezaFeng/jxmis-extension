@@ -16,6 +16,24 @@
     pageConcurrency: 2
   };
 
+  function createPageMessage(type, message, extra) {
+    return Object.assign(
+      {
+        source: SOURCE_PAGE,
+        type: type,
+        message: message
+      },
+      extra || {}
+    );
+  }
+
+  function getTransport() {
+    if (window.CwJxmisTransport) {
+      return window.CwJxmisTransport;
+    }
+    throw new Error("页面传输模块未加载，请刷新页面后重试");
+  }
+
   function getWeeklyContextModule() {
     if (!window.CwWeeklyContext) {
       throw new Error("weekly context module not loaded");
@@ -24,7 +42,11 @@
   }
 
   function post(type, message, extra) {
-    window.CwJxmisTransport.post(window, SOURCE_PAGE, type, message, extra);
+    if (window.CwJxmisTransport && typeof window.CwJxmisTransport.post === "function") {
+      window.CwJxmisTransport.post(window, SOURCE_PAGE, type, message, extra);
+      return;
+    }
+    window.postMessage(createPageMessage(type, message, extra), "*");
   }
 
   function logWbsStep(step, detail) {
@@ -68,19 +90,19 @@
   }
 
   function getWebapp() {
-    return window.CwJxmisTransport.getWebapp(window.localStorage);
+    return getTransport().getWebapp(window.localStorage);
   }
 
   function getBaseUrl() {
-    return window.CwJxmisTransport.getBaseUrl(window.location, window.localStorage);
+    return getTransport().getBaseUrl(window.location, window.localStorage);
   }
 
   async function assertOk(response, label) {
-    return window.CwJxmisTransport.assertOk(response, label);
+    return getTransport().assertOk(response, label);
   }
 
   async function fetchJson(url, label) {
-    return window.CwJxmisTransport.fetchJson(fetch, url, label);
+    return getTransport().fetchJson(fetch, url, label);
   }
 
   function parseDate(value) {
@@ -526,6 +548,14 @@
       throw new Error("周报总结模块未加载");
     }
     return window.CwWeeklySummary.getErrorMessage(data);
+  }
+
+  function isMissingAiConfigError(error) {
+    return Boolean(
+      window.CwWeeklySummary &&
+        typeof window.CwWeeklySummary.isMissingConfigError === "function" &&
+        window.CwWeeklySummary.isMissingConfigError(error)
+    );
   }
 
   function requestContentBridge(type, payload) {
@@ -1657,7 +1687,6 @@
       if (!targetField) {
         throw new Error("未找到“本周执行情况”文本框");
       }
-      setFieldValue(targetField, "");
       const summaryRows = Array.isArray(dailyActualResult.rawRows) ? dailyActualResult.rawRows : [];
       const dailyTasks = createWeeklyTaskDetailsFromRows(summaryRows, context);
       logWbsStep("weekly summary task details extracted from shared daily rows", {
@@ -1675,6 +1704,14 @@
       });
       return summaryResult;
     } catch (error) {
+      if (isMissingAiConfigError(error)) {
+        const message = "未配置大模型，已跳过周报总结";
+        warnWbsStep("skip weekly summary because AI config is missing", {
+          error: error && error.message ? error.message : String(error)
+        });
+        post("CW_BATCH_WORK_RUNNING", message);
+        return createWeeklySummaryResult("", 0, "");
+      }
       warnWbsStep("weekly summary generation failed before current week save", {
         error: error && error.message ? error.message : String(error)
       });
