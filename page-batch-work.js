@@ -6,6 +6,10 @@
 
   const SOURCE_PAGE = "cw-batch-work-page";
   const SOURCE_CONTENT = "cw-batch-work-content";
+  const MODE_ALL = "all";
+  const MODE_SUMMARY = "summary";
+  const MODE_HOURS = "hours";
+  const MODE_PLAN = "plan";
 
   let running = false;
   let pendingAiRequest = null;
@@ -63,6 +67,27 @@
       return;
     }
     console.warn("[cw-batch-work][wbs] " + step, detail);
+  }
+
+  function normalizeRunMode(mode) {
+    const value = String(mode || "").trim();
+    if (value === MODE_SUMMARY || value === MODE_HOURS || value === MODE_PLAN) {
+      return value;
+    }
+    return MODE_ALL;
+  }
+
+  function getRunModeLabel(mode) {
+    if (mode === MODE_SUMMARY) {
+      return "仅填周报";
+    }
+    if (mode === MODE_HOURS) {
+      return "仅填工时";
+    }
+    if (mode === MODE_PLAN) {
+      return "仅填计划";
+    }
+    return "一键报工";
   }
 
   function delay(ms) {
@@ -1680,7 +1705,7 @@
     };
   }
 
-  async function generateWeeklySummaryBeforeCurrentWeekSave(context, dailyActualResult) {
+  async function generateWeeklySummaryBeforeCurrentWeekSave(context, dailyActualResult, options) {
     post("CW_BATCH_WORK_RUNNING", "基于本次日报数据生成周报总结");
     try {
       const targetField = findCurrWkResultField();
@@ -1704,7 +1729,8 @@
       });
       return summaryResult;
     } catch (error) {
-      if (isMissingAiConfigError(error)) {
+      const canSkipMissingConfig = !options || options.skipMissingAiConfig !== false;
+      if (canSkipMissingConfig && isMissingAiConfigError(error)) {
         const message = "未配置大模型，已跳过周报总结";
         warnWbsStep("skip weekly summary because AI config is missing", {
           error: error && error.message ? error.message : String(error)
@@ -1737,15 +1763,14 @@
     return false;
   }
 
-  async function runBatchWork() {
-    const wkForm = await waitForWkFormJS(["saveAll"]);
-    logWbsStep("batch work start", {
+  async function resolveBatchContext(mode) {
+    logWbsStep(getRunModeLabel(mode) + " start", {
+      mode: mode,
       href: window.location.href,
       webapp: getWebapp(),
       baseUrl: getBaseUrl()
     });
 
-    const currentWeekTable = getCurrentWeekExecutionTableState();
     const context = await getWeeklyContext();
     logWbsStep("weekly context resolved", {
       wkId: context.wkId,
@@ -1759,7 +1784,90 @@
       projectManager: context.projectManager,
       projectManagerName: context.projectManagerName
     });
+    return context;
+  }
 
+  async function runSummaryOnly() {
+    const wkForm = await waitForWkFormJS(["saveAll"]);
+    const context = await resolveBatchContext(MODE_SUMMARY);
+    const dailyActual = await loadWeeklyDailyActual(context, []);
+    const summaryResult = await generateWeeklySummaryBeforeCurrentWeekSave(
+      context,
+      dailyActual.dailyActualResult,
+      {
+        skipMissingAiConfig: false
+      }
+    );
+    const saved = await saveCurrentWeekIfNeeded(wkForm, 0, summaryResult, null);
+    return {
+      mode: MODE_SUMMARY,
+      updateCount: 0,
+      nextInsertCount: 0,
+      currentSaveTriggered: saved,
+      weeklySummaryGenerated: Boolean(summaryResult && summaryResult.summaryText),
+      skipped: !saved
+    };
+  }
+
+  async function runHoursOnly() {
+    const wkForm = await waitForWkFormJS(["saveAll"]);
+    const context = await resolveBatchContext(MODE_HOURS);
+    const currentWeekTable = getCurrentWeekExecutionTableState();
+    const dailyActual = await loadWeeklyDailyActual(context, currentWeekTable.dataArr);
+    const currentWeekPlan = applyCurrentWeekExecutionPlans(
+      currentWeekTable,
+      dailyActual.dailyActualResolver
+    );
+    const saved = await saveCurrentWeekIfNeeded(
+      wkForm,
+      currentWeekPlan.updateCount,
+      null,
+      currentWeekPlan.updateModifyData
+    );
+    return {
+      mode: MODE_HOURS,
+      updateCount: currentWeekPlan.updateCount,
+      nextInsertCount: 0,
+      currentSaveTriggered: saved,
+      weeklySummaryGenerated: false,
+      result: currentWeekPlan.result,
+      skipped: currentWeekPlan.updateCount <= 0
+    };
+  }
+
+  async function runPlanOnly() {
+    const context = await resolveBatchContext(MODE_PLAN);
+    post("CW_BATCH_WORK_RUNNING", "生成下周 WBS 计划明细");
+    const nextPlanResult = await fillNextWeekWbsPlan(context);
+    return {
+      mode: MODE_PLAN,
+      updateCount: 0,
+      nextInsertCount: nextPlanResult.insertCount,
+      missingMajorPersonCount: nextPlanResult.missingMajorPersonCount,
+      missingMajorPersonRows: nextPlanResult.missingMajorPersonRows,
+      currentSaveTriggered: false,
+      weeklySummaryGenerated: false,
+      nextPlan: nextPlanResult,
+      skipped: nextPlanResult.insertCount <= 0,
+      nextSaveSkipped: true
+    };
+  }
+
+  async function runBatchWork(mode) {
+    const normalizedMode = normalizeRunMode(mode);
+    if (normalizedMode === MODE_SUMMARY) {
+      return runSummaryOnly();
+    }
+    if (normalizedMode === MODE_HOURS) {
+      return runHoursOnly();
+    }
+    if (normalizedMode === MODE_PLAN) {
+      return runPlanOnly();
+    }
+
+    const wkForm = await waitForWkFormJS(["saveAll"]);
+    const context = await resolveBatchContext(MODE_ALL);
+    const currentWeekTable = getCurrentWeekExecutionTableState();
     const dailyActual = await loadWeeklyDailyActual(context, currentWeekTable.dataArr);
     const currentWeekPlan = applyCurrentWeekExecutionPlans(
       currentWeekTable,
@@ -1856,43 +1964,103 @@
     };
   }
 
-  async function run() {
+  function getModeRunningMessage(mode) {
+    if (mode === MODE_SUMMARY) {
+      return "仅填周报中";
+    }
+    if (mode === MODE_HOURS) {
+      return "仅填工时中";
+    }
+    if (mode === MODE_PLAN) {
+      return "仅填计划中";
+    }
+    return "一键报工中";
+  }
+
+  function postModeDone(result) {
+    if (result.mode === MODE_SUMMARY) {
+      post("CW_BATCH_WORK_DONE", result.currentSaveTriggered ? "周报总结已生成并保存" : "未生成可保存的周报总结");
+      return;
+    }
+    if (result.mode === MODE_HOURS) {
+      post(
+        "CW_BATCH_WORK_DONE",
+        result.currentSaveTriggered
+          ? "本周工时已填写并保存，update " + result.updateCount + " 条"
+          : "没有可保存的本周工时变更"
+      );
+      return;
+    }
+    if (result.mode === MODE_PLAN) {
+      if (result.nextInsertCount <= 0) {
+        post("CW_BATCH_WORK_DONE", "没有可填入的下周计划，未自动保存");
+        return;
+      }
+      const missingText = result.missingMajorPersonCount > 0
+        ? "，其中 " + result.missingMajorPersonCount + " 条缺少人员"
+        : "";
+      post(
+        "CW_BATCH_WORK_DONE",
+        "已填下周计划 " + result.nextInsertCount + " 行" + missingText + "，未自动保存，请检查后手动保存"
+      );
+      return;
+    }
+
+    if (result.skipped) {
+      if (result.currentSaveTriggered) {
+        post("CW_BATCH_WORK_DONE", "本周报工/周报总结已保存；没有可插入的下周计划");
+      } else {
+        post("CW_BATCH_WORK_DONE", "没有可提交的 update/insert 数据");
+      }
+      return;
+    }
+
+    if (result.nextSaveSkipped) {
+      const currentMessage = result.currentSaveTriggered ? "本周报工已保存；" : "";
+      post(
+        "CW_BATCH_WORK_DONE",
+        currentMessage + "下周计划已填入 " + result.nextInsertCount + " 条，其中 " + result.missingMajorPersonCount + " 条缺少人员，需手工保存"
+      );
+      return;
+    }
+
+    post("CW_BATCH_WORK_DONE", "已触发保存，update " + result.updateCount + " 条，下周计划 insert " + result.nextInsertCount + " 条");
+  }
+
+  async function run(mode) {
+    const normalizedMode = normalizeRunMode(mode);
     if (running) {
-      post("CW_BATCH_WORK_RUNNING", "已有批量报工任务运行中");
+      post("CW_BATCH_WORK_RUNNING", "已有" + getRunModeLabel(normalizedMode) + "任务运行中");
       return;
     }
 
     running = true;
 
     try {
-      post("CW_BATCH_WORK_RUNNING", "批量填充中");
-      const result = await runBatchWork();
-
-      if (result.skipped) {
-        if (result.currentSaveTriggered) {
-          post("CW_BATCH_WORK_DONE", "本周报工/周报总结已保存；没有可插入的下周计划");
-        } else {
-          post("CW_BATCH_WORK_DONE", "没有可提交的 update/insert 数据");
-        }
-        return;
-      }
-
-      if (result.nextSaveSkipped) {
-        const currentMessage = result.currentSaveTriggered ? "本周报工已保存；" : "";
-        post(
-          "CW_BATCH_WORK_DONE",
-          currentMessage + "下周计划已填入 " + result.nextInsertCount + " 条，其中 " + result.missingMajorPersonCount + " 条缺少人员，需手工保存"
-        );
-        return;
-      }
-
-      post("CW_BATCH_WORK_DONE", "已触发保存，update " + result.updateCount + " 条，下周计划 insert " + result.nextInsertCount + " 条");
+      post("CW_BATCH_WORK_RUNNING", getModeRunningMessage(normalizedMode));
+      const result = await runBatchWork(normalizedMode);
+      postModeDone(result);
     } catch (error) {
-      post("CW_BATCH_WORK_ERROR", "批量报工失败: " + (error && error.message ? error.message : String(error)));
+      post("CW_BATCH_WORK_ERROR", getRunModeLabel(normalizedMode) + "失败: " + (error && error.message ? error.message : String(error)));
       throw error;
     } finally {
       running = false;
     }
+  }
+
+  async function runToolbarAction(action) {
+    if (action !== "save") {
+      throw new Error("未知工具栏动作: " + String(action || ""));
+    }
+
+    post("CW_TOOLBAR_ACTION_RUNNING", "保存中...");
+    const wkForm = await waitForWkFormJS(["saveAll"]);
+    wkForm.saveAll();
+    logWbsStep("toolbar fallback action called", {
+      action: "save",
+      method: "saveAll"
+    });
+    post("CW_TOOLBAR_ACTION_DONE", "保存完成");
   }
 
   window.addEventListener("message", function (event) {
@@ -1905,9 +2073,19 @@
     }
 
     if (data.type === "CW_BATCH_WORK_START") {
-      run().catch(function (error) {
+      run(data.mode).catch(function (error) {
         console.error("[cw-batch-work]", error);
       });
+      return;
+    }
+
+    if (data.type === "CW_TOOLBAR_ACTION") {
+      runToolbarAction(data.action).catch(function (error) {
+        const message = error && error.message ? error.message : String(error);
+        console.error("[cw-batch-work][toolbar]", error);
+        post("CW_TOOLBAR_ACTION_ERROR", message);
+      });
+      return;
     }
 
     if (!pendingAiRequest || data.requestId !== pendingAiRequest.requestId) {
