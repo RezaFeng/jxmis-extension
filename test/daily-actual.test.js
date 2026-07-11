@@ -26,6 +26,7 @@ function weeklyRow(overrides) {
       majorPersonName: "张三",
       wbsId: "WBS-1",
       wbsName: "开发任务",
+      extId: "",
       extName: "开发任务",
       taskName: ""
     },
@@ -61,6 +62,83 @@ test("matches by WBS and person and aggregates realHour", function () {
   assert.equal(actual.value, "7.5");
   assert.equal(actual.source, "dailyExact");
   assert.equal(actual.matchedDailyRows, 2);
+});
+
+test("splits WBS/person hours by extName to daily taskName when weekly rows are split", function () {
+  const weeklyA = weeklyRow({ extName: "需求开发" });
+  const weeklyB = weeklyRow({ extName: "联调测试" });
+  const daily = collectDailyRows([
+    dailyRow({
+      taskName: "需求开发",
+      realHour: "16",
+      realFinishRate: "40%",
+      submissionTime: "2026-07-06 18:00:00",
+      taskId: "D-A"
+    }),
+    dailyRow({
+      taskName: "联调测试",
+      realHour: "24",
+      realFinishRate: "90%",
+      submissionTime: "2026-07-09 19:30:00",
+      taskId: "D-B"
+    })
+  ]);
+  const resolver = dailyActual.createDailyActualResolver(daily.rows, [weeklyA, weeklyB]);
+  const actualA = dailyActual.resolveDailyActualHours(weeklyA, "16", resolver);
+  const actualB = dailyActual.resolveDailyActualHours(weeklyB, "24", resolver);
+  const finishRateA = dailyActual.resolveDailyFinishRate(weeklyA, resolver);
+  const finishRateB = dailyActual.resolveDailyFinishRate(weeklyB, resolver);
+  const endTimeA = dailyActual.resolveDailyRealEndTime(weeklyA, "2026-07-10 17:30:00", resolver);
+  const endTimeB = dailyActual.resolveDailyRealEndTime(weeklyB, "2026-07-10 17:30:00", resolver);
+
+  assert.equal(actualA.value, "16");
+  assert.equal(actualA.source, "dailyExact");
+  assert.equal(actualA.matchedDailyRows, 1);
+  assert.equal(actualB.value, "24");
+  assert.equal(actualB.source, "dailyExact");
+  assert.equal(actualB.matchedDailyRows, 1);
+  assert.equal(finishRateA.value, "40");
+  assert.equal(finishRateB.value, "90");
+  assert.equal(endTimeA.value, "2026-07-06 18:00:00");
+  assert.equal(endTimeB.value, "2026-07-09 19:30:00");
+});
+
+test("prefers weekly extId to daily taskId when split WBS/person task names are not unique", function () {
+  const weeklyA = weeklyRow({ extId: "D-A", extName: "同名任务" });
+  const weeklyB = weeklyRow({ extId: "D-B", extName: "同名任务" });
+  const daily = collectDailyRows([
+    dailyRow({ taskName: "同名任务", realHour: "16", taskId: "D-A" }),
+    dailyRow({ taskName: "同名任务", realHour: "24", taskId: "D-B" })
+  ]);
+  const resolver = dailyActual.createDailyActualResolver(daily.rows, [weeklyA, weeklyB]);
+  const actualA = dailyActual.resolveDailyActualHours(weeklyA, "16", resolver);
+  const actualB = dailyActual.resolveDailyActualHours(weeklyB, "24", resolver);
+
+  assert.equal(actualA.value, "16");
+  assert.equal(actualA.source, "dailyExact");
+  assert.equal(actualA.matchedDailyRows, 1);
+  assert.equal(actualB.value, "24");
+  assert.equal(actualB.source, "dailyExact");
+  assert.equal(actualB.matchedDailyRows, 1);
+});
+
+test("does not aggregate split WBS/person rows when weekly task identity is missing", function () {
+  const weeklyA = weeklyRow({ extId: "", extName: "", taskName: "", wbsName: "" });
+  const weeklyB = weeklyRow({ extId: "", extName: "", taskName: "", wbsName: "" });
+  const daily = collectDailyRows([
+    dailyRow({ taskName: "需求开发", realHour: "16", taskId: "D-A" }),
+    dailyRow({ taskName: "联调测试", realHour: "24", taskId: "D-B" })
+  ]);
+  const resolver = dailyActual.createDailyActualResolver(daily.rows, [weeklyA, weeklyB]);
+  const actualA = dailyActual.resolveDailyActualHours(weeklyA, "16", resolver);
+  const actualB = dailyActual.resolveDailyActualHours(weeklyB, "24", resolver);
+
+  assert.equal(actualA.value, "16");
+  assert.equal(actualA.source, "planFallback");
+  assert.equal(actualA.reason, "missingWeeklyTaskIdentityForSplitWbs");
+  assert.equal(actualB.value, "24");
+  assert.equal(actualB.source, "planFallback");
+  assert.equal(actualB.reason, "missingWeeklyTaskIdentityForSplitWbs");
 });
 
 test("falls back to task name and person when WBS is missing", function () {

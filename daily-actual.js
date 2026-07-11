@@ -108,6 +108,22 @@
     return normalizeMatchText(row && row.wbsId);
   }
 
+  function getWeeklyTaskId(rowData) {
+    return normalizeMatchText(rowData && (rowData.extId || rowData.taskId));
+  }
+
+  function getDailyTaskId(row) {
+    return normalizeMatchText(row && row.taskId);
+  }
+
+  function getWeeklyTaskName(rowData) {
+    return normalizeMatchText(rowData && (rowData.extName || rowData.taskName || rowData.wbsName));
+  }
+
+  function getDailyTaskName(row) {
+    return normalizeMatchText(row && row.taskName);
+  }
+
   function getWeeklyTaskNames(rowData) {
     const seen = new Set();
     return [
@@ -179,6 +195,8 @@
         raw: row,
         date: date,
         wbsId: getDailyWbsId(row),
+        taskId: getDailyTaskId(row),
+        taskName: getDailyTaskName(row),
         taskOwner: normalizeMatchText(row && row.taskOwner),
         userFullname: normalizeMatchText(row && row.userFullname),
         taskNames: getDailyTaskNames(row),
@@ -209,6 +227,20 @@
     };
   }
 
+  function buildWeeklyWbsPersonCounts(weeklyRows) {
+    const counts = {};
+    weeklyRows.forEach(function (rowData) {
+      const personKey = getWeeklyPersonKey(rowData);
+      const wbsId = getWeeklyWbsId(rowData);
+      if (!personKey || !wbsId) {
+        return;
+      }
+      const key = personKey + "|wbs:" + wbsId;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  }
+
   function buildWeeklyNameMatchCounts(weeklyRows) {
     const counts = {};
     weeklyRows.forEach(function (rowData) {
@@ -233,6 +265,7 @@
     return {
       available: true,
       dailyRows: dailyRows,
+      wbsPersonCounts: buildWeeklyWbsPersonCounts(weeklyRows),
       nameCounts: buildWeeklyNameMatchCounts(weeklyRows),
       usedHourWeeklyKeys: new Set(),
       usedFinishRateWeeklyKeys: new Set(),
@@ -249,6 +282,65 @@
     return resolver.dailyRows.filter(function (row) {
       return row.wbsId === wbsId && dailyPersonMatches(row.raw, rowData);
     });
+  }
+
+  function resolveDailyWbsMatch(rowData, resolver, personKey) {
+    const wbsId = getWeeklyWbsId(rowData);
+    if (!wbsId) {
+      return {
+        key: "",
+        matches: [],
+        reason: "noWeeklyWbsId"
+      };
+    }
+
+    const wbsKey = personKey + "|wbs:" + wbsId;
+    const isSplitWeeklyWbs = ((resolver.wbsPersonCounts && resolver.wbsPersonCounts[wbsKey]) || 0) > 1;
+    if (!isSplitWeeklyWbs) {
+      return {
+        key: wbsKey,
+        matches: findDailyMatchesByWbs(rowData, resolver),
+        reason: "noDailyMatch"
+      };
+    }
+
+    const taskId = getWeeklyTaskId(rowData);
+    if (taskId) {
+      const taskIdMatches = resolver.dailyRows.filter(function (row) {
+        return row.wbsId === wbsId &&
+          row.taskId === taskId &&
+          dailyPersonMatches(row.raw, rowData);
+      });
+      if (taskIdMatches.length) {
+        return {
+          key: wbsKey + "|taskId:" + taskId,
+          matches: taskIdMatches,
+          reason: ""
+        };
+      }
+    }
+
+    const taskName = getWeeklyTaskName(rowData);
+    if (!taskId && !taskName) {
+      return {
+        key: wbsKey + "|task:",
+        matches: [],
+        reason: "missingWeeklyTaskIdentityForSplitWbs"
+      };
+    }
+
+    const matches = taskName
+      ? resolver.dailyRows.filter(function (row) {
+        return row.wbsId === wbsId &&
+          row.taskName === taskName &&
+          dailyPersonMatches(row.raw, rowData);
+      })
+      : [];
+    return {
+      key: wbsKey + "|taskName:" + taskName,
+      matches: matches,
+      reason: matches.length ? "" : "noDailyTaskIdentityMatch"
+    };
   }
 
   function findDailyMatchesByName(rowData, resolver) {
@@ -305,7 +397,8 @@
 
     const wbsId = getWeeklyWbsId(rowData);
     if (wbsId) {
-      const weeklyKey = personKey + "|wbs:" + wbsId;
+      const wbsMatch = resolveDailyWbsMatch(rowData, resolver, personKey);
+      const weeklyKey = wbsMatch.key;
       if (resolver.usedHourWeeklyKeys.has(weeklyKey)) {
         return {
           value: planDate,
@@ -314,7 +407,7 @@
         };
       }
 
-      const matches = findDailyMatchesByWbs(rowData, resolver);
+      const matches = wbsMatch.matches;
       const total = matches.reduce(function (sum, row) {
         return sum + row.realHour;
       }, 0);
@@ -336,6 +429,13 @@
           source: "planFallback",
           reason: "matchedButNoRealHour",
           matchedDailyRows: matches.length
+        };
+      }
+      if (wbsMatch.reason && wbsMatch.reason !== "noDailyMatch") {
+        return {
+          value: planDate,
+          source: "planFallback",
+          reason: wbsMatch.reason
         };
       }
     }
@@ -405,7 +505,8 @@
     let fallbackReason = "noApprovedDailyMatch";
     let source = "dailyExact";
     if (wbsId) {
-      weeklyKey = personKey + "|wbs:" + wbsId;
+      const wbsMatch = resolveDailyWbsMatch(rowData, resolver, personKey);
+      weeklyKey = wbsMatch.key;
       if (resolver.usedFinishRateWeeklyKeys.has(weeklyKey)) {
         return {
           value: "100",
@@ -413,10 +514,11 @@
           reason: "duplicateWeeklyWbsPerson"
         };
       }
-      matches = findDailyMatchesByWbs(rowData, resolver);
+      matches = wbsMatch.matches;
+      fallbackReason = wbsMatch.reason || fallbackReason;
     }
 
-    if (!matches.length) {
+    if (!matches.length && fallbackReason !== "missingWeeklyTaskIdentityForSplitWbs" && fallbackReason !== "noDailyTaskIdentityMatch") {
       const nameMatch = findDailyMatchesByName(rowData, resolver);
       weeklyKey = nameMatch.key;
       matches = nameMatch.matches;
@@ -484,7 +586,8 @@
     let fallbackReason = "noDailyMatch";
     let source = "dailyExact";
     if (wbsId) {
-      weeklyKey = personKey + "|wbs:" + wbsId;
+      const wbsMatch = resolveDailyWbsMatch(rowData, resolver, personKey);
+      weeklyKey = wbsMatch.key;
       if (resolver.usedEndTimeWeeklyKeys.has(weeklyKey)) {
         return {
           value: fallback,
@@ -492,10 +595,11 @@
           reason: "duplicateWeeklyWbsPerson"
         };
       }
-      matches = findDailyMatchesByWbs(rowData, resolver);
+      matches = wbsMatch.matches;
+      fallbackReason = wbsMatch.reason || fallbackReason;
     }
 
-    if (!matches.length) {
+    if (!matches.length && fallbackReason !== "missingWeeklyTaskIdentityForSplitWbs" && fallbackReason !== "noDailyTaskIdentityMatch") {
       const nameMatch = findDailyMatchesByName(rowData, resolver);
       weeklyKey = nameMatch.key;
       matches = nameMatch.matches;
@@ -553,14 +657,20 @@
     dailyPersonMatches: dailyPersonMatches,
     getWeeklyWbsId: getWeeklyWbsId,
     getDailyWbsId: getDailyWbsId,
+    getWeeklyTaskId: getWeeklyTaskId,
+    getDailyTaskId: getDailyTaskId,
+    getWeeklyTaskName: getWeeklyTaskName,
+    getDailyTaskName: getDailyTaskName,
     getWeeklyTaskNames: getWeeklyTaskNames,
     getDailyTaskNames: getDailyTaskNames,
     appendDailyActualRows: appendDailyActualRows,
     createDailyActualStats: createDailyActualStats,
+    buildWeeklyWbsPersonCounts: buildWeeklyWbsPersonCounts,
     buildWeeklyNameMatchCounts: buildWeeklyNameMatchCounts,
     formatHourValue: formatHourValue,
     createDailyActualResolver: createDailyActualResolver,
     findDailyMatchesByWbs: findDailyMatchesByWbs,
+    resolveDailyWbsMatch: resolveDailyWbsMatch,
     findDailyMatchesByName: findDailyMatchesByName,
     resolveDailyActualHours: resolveDailyActualHours,
     resolveDailyFinishRate: resolveDailyFinishRate,
