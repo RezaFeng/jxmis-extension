@@ -55,11 +55,35 @@
 - `popup.css`: popup styles
 - `popup.js`: popup storage and model refresh logic
 - `content.js`: injects UI and coordinates page actions
+- `jxmis-transport.js`: shared page-context transport helpers for messages, base URL resolution, JSON fetch, and delays
+- `wbs-plan.js`: pure next-week WBS plan generation rules used by batch work
+- `daily-actual.js`: pure daily-report matching rules for actual hours, finish rate, and actual end time
 - `page-batch-approve.js`: batch daily approval logic in page context
 - `page-batch-work.js`: batch work-report fill and save logic in page context
 - `page-batch-weekly-approve.js`: batch weekly report approval logic in page context
+- `package.json`: Node test script using the built-in test runner
+- `test/`: unit tests for shared transport, WBS planning, and daily actual matching
 - `日报审核接口文档.md`: captured interface notes for daily approval flow
 - `周报批量审核接口说明文档.md`: captured interface notes for weekly approval flow
+
+## Development
+
+Run unit tests:
+
+```bash
+npm test
+```
+
+Run syntax checks for extension scripts:
+
+```bash
+node --check content.js page-batch-approve.js page-batch-weekly-approve.js page-batch-work.js background.js popup.js defaults.js jxmis-transport.js wbs-plan.js daily-actual.js
+```
+
+Shared page-context modules are loaded by `content.js` before the page automation scripts:
+
+- `jxmis-transport.js` before all page scripts
+- `wbs-plan.js` and `daily-actual.js` before `page-batch-work.js`
 
 ## Supported Pages
 
