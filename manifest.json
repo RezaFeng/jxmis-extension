@@ -15,14 +15,12 @@
   "content_scripts": [
     {
       "matches": [
-        "https://jxmis.cyberwing.cn/jxpmo/index/frame*",
-        "https://jxmis.cyberwing.cn/jxpmo/project/ProjectRapportService/dailyApprovalPage*",
-        "https://jxmis.cyberwing.cn/jxpmo/project/WkReportService/id/*"
+        "https://jxmis.cyberwing.cn/jxpmo/*"
       ],
       "js": [
         "content.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ],
   "host_permissions": [
@@ -32,6 +30,7 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "project-manager-override.js",
         "jxmis-transport.js",
         "page-batch-approve.js",
         "wbs-plan.js",

@@ -7,6 +7,7 @@
     model: document.getElementById("model"),
     provider: document.getElementById("provider"),
     enableThinking: document.getElementById("enableThinking"),
+    projectManager: document.getElementById("projectManager"),
     systemPrompt: document.getElementById("systemPrompt"),
     modelList: document.getElementById("modelList"),
     refreshModels: document.getElementById("refreshModels"),
@@ -44,6 +45,7 @@
       model: fields.model.value.trim(),
       provider: fields.provider.value || "deepseek",
       enableThinking: fields.enableThinking.checked,
+      projectManager: fields.projectManager.value.trim(),
       systemPrompt: fields.systemPrompt.value.trim() || DEFAULT_SYSTEM_PROMPT
     };
   }
@@ -60,6 +62,7 @@
       model: "",
       provider: "deepseek",
       enableThinking: false,
+      projectManager: "",
       systemPrompt: DEFAULT_SYSTEM_PROMPT
     });
     fields.baseUrl.value = data.baseUrl || "";
@@ -67,6 +70,7 @@
     fields.model.value = data.model || "";
     fields.provider.value = data.provider || "deepseek";
     fields.enableThinking.checked = data.enableThinking === true;
+    fields.projectManager.value = data.projectManager || "";
     fields.systemPrompt.value = data.systemPrompt || DEFAULT_SYSTEM_PROMPT;
   }
 

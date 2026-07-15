@@ -8,6 +8,10 @@
   }
   window.__cwDailyApprovalContentLoaded = true;
 
+  const PROJECT_MANAGER_OVERRIDE_SCRIPT_ID = "cw-project-manager-override-script";
+  const PROJECT_MANAGER_OVERRIDE_SOURCE = "cw-project-manager-config";
+  const PROJECT_MANAGER_OVERRIDE_TYPE = "CW_PROJECT_MANAGER_OVERRIDE_CONFIG";
+
   const DAILY_SCRIPT_ID = "cw-daily-approval-page-script";
   const TRANSPORT_SCRIPT_ID = "cw-jxmis-transport-script";
   const DAILY_PANEL_ID = "cw-daily-approval-panel";
@@ -212,6 +216,47 @@
       (document.head || document.documentElement).appendChild(script);
     });
   }
+
+  function postProjectManagerConfig(projectManager) {
+    window.postMessage(
+      {
+        source: PROJECT_MANAGER_OVERRIDE_SOURCE,
+        type: PROJECT_MANAGER_OVERRIDE_TYPE,
+        projectManager: String(projectManager || "").trim()
+      },
+      "*"
+    );
+  }
+
+  function loadProjectManagerConfig() {
+    chrome.storage.local.get(
+      {
+        projectManager: ""
+      },
+      function (data) {
+        postProjectManagerConfig(data && data.projectManager);
+      }
+    );
+  }
+
+  function syncProjectManagerOverride() {
+    injectPageScript(PROJECT_MANAGER_OVERRIDE_SCRIPT_ID, "project-manager-override.js")
+      .then(function () {
+        loadProjectManagerConfig();
+      })
+      .catch(function (error) {
+        console.error("[cw-content] load project manager override failed", {
+          error: error && error.message ? error.message : String(error)
+        });
+      });
+  }
+
+  chrome.storage.onChanged.addListener(function (changes, areaName) {
+    if (areaName !== "local" || !changes.projectManager) {
+      return;
+    }
+    postProjectManagerConfig(changes.projectManager.newValue);
+  });
 
   const automationScriptLoads = {};
 
@@ -1016,6 +1061,7 @@
     }
   });
 
+  syncProjectManagerOverride();
   ensureAutomation();
 
   window.addEventListener("hashchange", function () {
