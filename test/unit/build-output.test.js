@@ -42,8 +42,11 @@ test("production and test manifests keep fixture permissions isolated", async fu
 
   assert.equal(production.content_scripts[0].matches.includes(fixtureMatch), false);
   assert.equal(production.web_accessible_resources[0].matches.includes(fixtureMatch), false);
+  assert.equal(production.host_permissions.includes(fixtureMatch), false);
   assert.equal(fixture.content_scripts[0].matches.includes(fixtureMatch), true);
   assert.equal(fixture.web_accessible_resources[0].matches.includes(fixtureMatch), true);
+  assert.equal(fixture.host_permissions.includes(fixtureMatch), true);
+  assert.notDeepEqual(production.content_scripts[0].js, production.content_scripts[1].js);
 
   const referenced = [
     production.background.service_worker,

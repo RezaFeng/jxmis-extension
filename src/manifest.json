@@ -18,7 +18,7 @@
         "https://jxmis.cyberwing.cn/jxpmo/*"
       ],
       "js": [
-        "content.js"
+        "background.js"
       ],
       "run_at": "document_start",
       "world": "MAIN"

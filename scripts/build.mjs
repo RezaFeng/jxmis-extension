@@ -57,6 +57,9 @@ function createManifest(source, mode) {
   }
 
   const fixtureMatch = "http://127.0.0.1/*";
+  if (!manifest.host_permissions.includes(fixtureMatch)) {
+    manifest.host_permissions.push(fixtureMatch);
+  }
   manifest.content_scripts.forEach(function (contentScript) {
     if (!contentScript.matches.includes(fixtureMatch)) {
       contentScript.matches.push(fixtureMatch);

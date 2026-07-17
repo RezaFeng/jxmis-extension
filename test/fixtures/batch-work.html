@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>Batch work fixture</title>
+    <script src="/fixture-runtime.js"></script>
+    <script>
+      window.WkFormJS = {
+        saveAll: function () {
+          window.__fixtureSaveAllCalls += 1;
+        },
+        addWkPlan: function () {}
+      };
+      window.DataTablesUtil = {
+        const: {
+          CHANGED_CLASS_NAME: "changed",
+          DATA_STORE_CHG: "changeData"
+        },
+        data: {
+          getModifyData: function () {
+            return { insert: [], update: [], delete: [] };
+          }
+        }
+      };
+    </script>
+  </head>
+  <body>
+    <input id="wkId" value="WK-FIXTURE">
+    <input id="projectId" value="PROJECT-1">
+    <input id="weekDate" value="2026-07-13 - 2026-07-19">
+    <div class="panel-toolbar pull-right"><button type="button">返回</button></div>
+    <button type="button">重新计算</button>
+    <table id="WkExecutiongrid"></table>
+  </body>
+</html>
