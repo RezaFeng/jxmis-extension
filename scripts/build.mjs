@@ -24,9 +24,12 @@ const LEGACY_SCRIPTS = [
   "weekly-summary.js"
 ];
 const BUNDLED_ENTRIES = {
+  background: path.join(ROOT_DIR, "src", "entries", "background.js"),
+  content: path.join(ROOT_DIR, "src", "entries", "content.js"),
   "page-batch-work": path.join(ROOT_DIR, "src", "entries", "page-batch-work.js"),
   "page-daily-approval": path.join(ROOT_DIR, "src", "entries", "page-daily-approval.js"),
-  "page-weekly-approval": path.join(ROOT_DIR, "src", "entries", "page-weekly-approval.js")
+  "page-weekly-approval": path.join(ROOT_DIR, "src", "entries", "page-weekly-approval.js"),
+  popup: path.join(ROOT_DIR, "src", "entries", "popup.js")
 };
 
 function parseArgs(args) {
