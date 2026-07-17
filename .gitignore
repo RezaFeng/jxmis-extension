@@ -1,1 +1,7 @@
 .gitnexus
+node_modules/
+dist/
+dist-test/
+release/
+playwright-report/
+test-results/

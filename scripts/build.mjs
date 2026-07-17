@@ -1,0 +1,180 @@
+import { readFile, rm, mkdir, writeFile, copyFile, watch } from "node:fs/promises";
+import path from "node:path";
+import process from "node:process";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { transform } from "esbuild";
+
+const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const LEGACY_SCRIPTS = [
+  "ai-request-body.js",
+  "background.js",
+  "content.js",
+  "current-week-execution-plan.js",
+  "daily-actual.js",
+  "defaults.js",
+  "jxmis-transport.js",
+  "page-batch-approve.js",
+  "page-batch-weekly-approve.js",
+  "page-batch-work.js",
+  "popup.js",
+  "project-manager-override.js",
+  "wbs-plan.js",
+  "weekly-context.js",
+  "weekly-detail.js",
+  "weekly-summary.js"
+];
+
+function parseArgs(args) {
+  const modeArg = args.find(function (arg) {
+    return arg.startsWith("--mode=");
+  });
+  const mode = modeArg ? modeArg.slice("--mode=".length) : "development";
+  if (!["development", "test", "production"].includes(mode)) {
+    throw new Error("unknown build mode: " + mode);
+  }
+  return {
+    mode: mode,
+    watch: args.includes("--watch")
+  };
+}
+
+function getOutputDir(mode) {
+  return path.join(ROOT_DIR, mode === "test" ? "dist-test" : "dist");
+}
+
+function createManifest(source, mode) {
+  const manifest = structuredClone(source);
+  if (mode !== "test") {
+    return manifest;
+  }
+
+  const fixtureMatch = "http://127.0.0.1/*";
+  manifest.content_scripts.forEach(function (contentScript) {
+    if (!contentScript.matches.includes(fixtureMatch)) {
+      contentScript.matches.push(fixtureMatch);
+    }
+  });
+  manifest.web_accessible_resources.forEach(function (resource) {
+    if (!resource.matches.includes(fixtureMatch)) {
+      resource.matches.push(fixtureMatch);
+    }
+  });
+  return manifest;
+}
+
+async function transformLegacyScript(fileName, outputDir, mode) {
+  const sourcePath = path.join(ROOT_DIR, fileName);
+  const source = await readFile(sourcePath, "utf8");
+  const result = await transform(source, {
+    format: "iife",
+    loader: "js",
+    minify: mode === "production",
+    sourcefile: fileName,
+    sourcemap: mode === "production" ? false : "inline",
+    target: "chrome110"
+  });
+  await writeFile(path.join(outputDir, fileName), result.code, "utf8");
+}
+
+async function writeStaticFiles(outputDir, mode) {
+  const manifestSource = JSON.parse(
+    await readFile(path.join(ROOT_DIR, "src", "manifest.json"), "utf8")
+  );
+  const manifest = createManifest(manifestSource, mode);
+  await writeFile(
+    path.join(outputDir, "manifest.json"),
+    JSON.stringify(manifest, null, 2) + "\n",
+    "utf8"
+  );
+  await copyFile(
+    path.join(ROOT_DIR, "src", "popup", "popup.html"),
+    path.join(outputDir, "popup.html")
+  );
+  await copyFile(
+    path.join(ROOT_DIR, "src", "popup", "popup.css"),
+    path.join(outputDir, "popup.css")
+  );
+}
+
+async function validateOutput(outputDir) {
+  const manifest = JSON.parse(await readFile(path.join(outputDir, "manifest.json"), "utf8"));
+  const referencedFiles = new Set([
+    manifest.background.service_worker,
+    manifest.action.default_popup
+  ]);
+  manifest.content_scripts.forEach(function (contentScript) {
+    contentScript.js.forEach(function (fileName) {
+      referencedFiles.add(fileName);
+    });
+  });
+  manifest.web_accessible_resources.forEach(function (resource) {
+    resource.resources.forEach(function (fileName) {
+      referencedFiles.add(fileName);
+    });
+  });
+  referencedFiles.add("popup.css");
+
+  await Promise.all(
+    Array.from(referencedFiles).map(function (fileName) {
+      return readFile(path.join(outputDir, fileName));
+    })
+  );
+}
+
+export async function runBuild(options = {}) {
+  const mode = options.mode || "development";
+  const outputDir = getOutputDir(mode);
+  await rm(outputDir, { recursive: true, force: true });
+  await mkdir(outputDir, { recursive: true });
+
+  await Promise.all(
+    LEGACY_SCRIPTS.map(function (fileName) {
+      return transformLegacyScript(fileName, outputDir, mode);
+    })
+  );
+  await writeStaticFiles(outputDir, mode);
+  await validateOutput(outputDir);
+  return outputDir;
+}
+
+async function runWatch(mode) {
+  let pending = Promise.resolve();
+  const rebuild = function () {
+    pending = pending
+      .catch(function () {})
+      .then(function () {
+        return runBuild({ mode: mode });
+      })
+      .then(function (outputDir) {
+        console.log("built " + path.relative(ROOT_DIR, outputDir));
+      })
+      .catch(function (error) {
+        console.error(error);
+      });
+  };
+
+  rebuild();
+  const watcher = watch(ROOT_DIR, { recursive: false });
+  for await (const event of watcher) {
+    const fileName = String(event.filename || "");
+    if (
+      LEGACY_SCRIPTS.includes(fileName) ||
+      fileName === "manifest.json" ||
+      fileName === "popup.html" ||
+      fileName === "popup.css"
+    ) {
+      rebuild();
+    }
+  }
+}
+
+const isMain = import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  const options = parseArgs(process.argv.slice(2));
+  if (options.watch) {
+    await runWatch(options.mode);
+  } else {
+    const outputDir = await runBuild(options);
+    console.log("built " + path.relative(ROOT_DIR, outputDir));
+  }
+}

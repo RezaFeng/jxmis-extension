@@ -2,6 +2,18 @@
   "name": "jxmis-extension",
   "private": true,
   "scripts": {
-    "test": "node --test"
+    "build": "node scripts/build.mjs",
+    "build:test": "node scripts/build.mjs --mode=test",
+    "dev": "node scripts/build.mjs --watch",
+    "package": "node scripts/package.mjs",
+    "test": "npm run test:unit",
+    "test:unit": "node --test",
+    "test:e2e": "npm run build:test && playwright test",
+    "verify": "npm run build && npm run test:unit && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "archiver": "^8.0.0",
+    "esbuild": "^0.28.1"
   }
 }

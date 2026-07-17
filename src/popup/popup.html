@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>JXMIS AI 配置</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="panel">
+      <h1>AI 周报配置</h1>
+
+      <label>
+        <span>模型厂商</span>
+        <select id="provider">
+          <option value="deepseek">DeepSeek</option>
+          <option value="modelscope">ModelScope</option>
+          <option value="openai-compatible">OpenAI-compatible</option>
+        </select>
+      </label>
+
+      <label>
+        <span>模型 URL</span>
+        <input id="baseUrl" type="url" placeholder="https://api.openai.com/v1">
+      </label>
+
+      <label>
+        <span>API Key</span>
+        <input id="apiKey" type="password" placeholder="sk-...">
+      </label>
+
+      <label>
+        <span>模型</span>
+        <input id="model" list="modelList" placeholder="点击刷新后选择或手动输入">
+        <datalist id="modelList"></datalist>
+      </label>
+
+      <label class="checkbox-row">
+        <input id="enableThinking" type="checkbox">
+        <span>打开思考模式</span>
+      </label>
+
+      <label>
+        <span>项目经理 ID</span>
+        <input id="projectManager" type="text" placeholder="为空时不替换请求参数">
+      </label>
+
+      <div class="row">
+        <button id="refreshModels" type="button">刷新模型</button>
+        <button id="save" type="button" class="primary">保存配置</button>
+      </div>
+
+      <label>
+        <span>总结周报 System Prompt</span>
+        <textarea id="systemPrompt" rows="9"></textarea>
+      </label>
+
+      <div id="status" class="status"></div>
+    </main>
+    <script src="defaults.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
