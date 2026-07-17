@@ -49,15 +49,29 @@
   }
 
   function getJsonFetchOptions() {
-    return {
-      method: "GET",
-      credentials: "same-origin",
-      headers: {
-        Accept: JSON_ACCEPT,
-        "X-Requested-With": "XMLHttpRequest"
-      },
-      cache: "no-store"
+    return getSameOriginFetchOptions({ cache: "no-store" });
+  }
+
+  function getSameOriginFetchOptions(options = {}) {
+    const headers = {
+      Accept: JSON_ACCEPT,
+      "X-Requested-With": "XMLHttpRequest"
     };
+    if (options.contentType) {
+      headers["Content-Type"] = options.contentType;
+    }
+    const result = {
+      method: options.method || "GET",
+      credentials: "same-origin",
+      headers: headers
+    };
+    if (options.cache) {
+      result.cache = options.cache;
+    }
+    if (options.body != null) {
+      result.body = options.body;
+    }
+    return result;
   }
 
   async function fetchJson(fetchFn, url, label) {
@@ -71,6 +85,17 @@
     return response.json();
   }
 
+  async function fetchText(fetchFn, url, label, options) {
+    let response;
+    try {
+      response = await fetchFn(url, getSameOriginFetchOptions(options));
+    } catch (error) {
+      throw new Error(label + " failed: " + (error && error.message ? error.message : String(error)) + " url=" + url);
+    }
+    await assertOk(response, label);
+    return response.text();
+  }
+
   export {
     createMessage,
     post,
@@ -79,6 +104,8 @@
     getWebapp,
     getBaseUrl,
     assertOk,
+    getSameOriginFetchOptions,
     getJsonFetchOptions,
-    fetchJson
+    fetchJson,
+    fetchText
   };

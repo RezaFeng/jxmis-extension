@@ -93,12 +93,8 @@
       matcher: isDailyApprovalPage,
       scripts: [
         {
-          id: TRANSPORT_SCRIPT_ID,
-          fileName: "jxmis-transport.js"
-        },
-        {
           id: DAILY_SCRIPT_ID,
-          fileName: "page-batch-approve.js"
+          fileName: "page-daily-approval.js"
         }
       ],
       ensurePanel: ensureDailyPanel
@@ -147,16 +143,8 @@
       matcher: isWeeklyApprovalListPage,
       scripts: [
         {
-          id: TRANSPORT_SCRIPT_ID,
-          fileName: "jxmis-transport.js"
-        },
-        {
-          id: WEEKLY_DETAIL_SCRIPT_ID,
-          fileName: "weekly-detail.js"
-        },
-        {
           id: WEEKLY_SCRIPT_ID,
-          fileName: "page-batch-weekly-approve.js"
+          fileName: "page-weekly-approval.js"
         }
       ],
       ensurePanel: ensureWeeklyApprovalPanel

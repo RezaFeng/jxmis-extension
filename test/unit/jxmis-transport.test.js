@@ -123,6 +123,45 @@ test("fetchJson wraps network errors with label and url", async function () {
   );
 });
 
+test("builds same-origin options for JSON and text requests", function () {
+  assert.deepEqual(
+    transport.getSameOriginFetchOptions({
+      method: "POST",
+      contentType: "application/json",
+      body: "{}"
+    }),
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        "Content-Type": "application/json"
+      },
+      body: "{}"
+    }
+  );
+});
+
+test("fetchText sends unified options and returns text", async function () {
+  let receivedOptions;
+  const text = await transport.fetchText(
+    async function (_url, options) {
+      receivedOptions = options;
+      return {
+        ok: true,
+        text: async function () { return "success"; }
+      };
+    },
+    "/approve",
+    "approve",
+    { cache: "no-store" }
+  );
+  assert.equal(text, "success");
+  assert.equal(receivedOptions.cache, "no-store");
+  assert.equal(receivedOptions.credentials, "same-origin");
+});
+
 test("randomDelay stays within configured range", function () {
   assert.equal(
     transport.randomDelay({ baseDelayMs: 500, randomDelayMaxMs: 1000 }, function () {

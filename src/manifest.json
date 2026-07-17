@@ -32,7 +32,7 @@
       "resources": [
         "project-manager-override.js",
         "jxmis-transport.js",
-        "page-batch-approve.js",
+        "page-daily-approval.js",
         "wbs-plan.js",
         "daily-actual.js",
         "current-week-execution-plan.js",
@@ -40,7 +40,7 @@
         "weekly-detail.js",
         "weekly-context.js",
         "page-batch-work.js",
-        "page-batch-weekly-approve.js"
+        "page-weekly-approval.js"
       ],
       "matches": [
         "https://jxmis.cyberwing.cn/*"

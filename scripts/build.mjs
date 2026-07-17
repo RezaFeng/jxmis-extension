@@ -2,7 +2,7 @@ import { readFile, rm, mkdir, writeFile, copyFile, watch } from "node:fs/promise
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { transform } from "esbuild";
+import { build as esbuildBuild, transform } from "esbuild";
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEGACY_SCRIPTS = [
@@ -23,6 +23,10 @@ const LEGACY_SCRIPTS = [
   "weekly-detail.js",
   "weekly-summary.js"
 ];
+const BUNDLED_ENTRIES = {
+  "page-daily-approval": path.join(ROOT_DIR, "src", "entries", "page-daily-approval.js"),
+  "page-weekly-approval": path.join(ROOT_DIR, "src", "entries", "page-weekly-approval.js")
+};
 
 function parseArgs(args) {
   const modeArg = args.find(function (arg) {
@@ -96,6 +100,20 @@ async function writeStaticFiles(outputDir, mode) {
   );
 }
 
+async function bundleEntries(outputDir, mode) {
+  await esbuildBuild({
+    entryPoints: BUNDLED_ENTRIES,
+    outdir: outputDir,
+    bundle: true,
+    entryNames: "[name]",
+    format: "iife",
+    legalComments: "none",
+    minify: mode === "production",
+    sourcemap: mode === "production" ? false : "inline",
+    target: "chrome110"
+  });
+}
+
 async function validateOutput(outputDir) {
   const manifest = JSON.parse(await readFile(path.join(outputDir, "manifest.json"), "utf8"));
   const referencedFiles = new Set([
@@ -132,6 +150,7 @@ export async function runBuild(options = {}) {
       return transformLegacyScript(fileName, outputDir, mode);
     })
   );
+  await bundleEntries(outputDir, mode);
   await writeStaticFiles(outputDir, mode);
   await validateOutput(outputDir);
   return outputDir;
