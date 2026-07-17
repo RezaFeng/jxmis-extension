@@ -24,6 +24,7 @@ const LEGACY_SCRIPTS = [
   "weekly-summary.js"
 ];
 const BUNDLED_ENTRIES = {
+  "page-batch-work": path.join(ROOT_DIR, "src", "entries", "page-batch-work.js"),
   "page-daily-approval": path.join(ROOT_DIR, "src", "entries", "page-daily-approval.js"),
   "page-weekly-approval": path.join(ROOT_DIR, "src", "entries", "page-weekly-approval.js")
 };

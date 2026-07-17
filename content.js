@@ -104,34 +104,6 @@
       matcher: isWorkReportPage,
       scripts: [
         {
-          id: TRANSPORT_SCRIPT_ID,
-          fileName: "jxmis-transport.js"
-        },
-        {
-          id: WORK_PLAN_SCRIPT_ID,
-          fileName: "wbs-plan.js"
-        },
-        {
-          id: WORK_DAILY_ACTUAL_SCRIPT_ID,
-          fileName: "daily-actual.js"
-        },
-        {
-          id: WORK_CURRENT_WEEK_PLAN_SCRIPT_ID,
-          fileName: "current-week-execution-plan.js"
-        },
-        {
-          id: WORK_WEEKLY_SUMMARY_SCRIPT_ID,
-          fileName: "weekly-summary.js"
-        },
-        {
-          id: WEEKLY_DETAIL_SCRIPT_ID,
-          fileName: "weekly-detail.js"
-        },
-        {
-          id: WORK_WEEKLY_CONTEXT_SCRIPT_ID,
-          fileName: "weekly-context.js"
-        },
-        {
           id: WORK_SCRIPT_ID,
           fileName: "page-batch-work.js"
         }
