@@ -1,106 +1,116 @@
+<!-- generated-by: gsd-doc-writer -->
 # jxmis-extension
 
-`jxmis-extension` is a Chrome extension for JXMIS automation.
+`jxmis-extension` 是面向 JXMIS 已登录用户的 Manifest V3 Chrome 扩展，用于日报批量审批、周报批量报工、AI 周报总结、下周 WBS 计划填充和周报批量审核。
 
-## Features
+## 功能
 
-- Daily approval page
-  - Injects `批量审批未审批日报`
-  - Loads all pending daily reports
-  - Approves sequentially
-  - Waits `500ms + random(0~999ms)` between requests
-  - Reloads page after batch approval completes
-- Work report page
-  - Detects route `#/jxpmo/project/WkReportService/id/<dynamic-id>?`
-  - Injects `批量报工` next to `重新计算`
-  - Fills `WkExecutiongrid`
-  - Reuses one weekly daily-report query for current-week WBS filling and weekly summary generation
-  - Uses approved daily report `realHour` totals for current-week actual hours, matched by WBS and owner, with planned hours as fallback
-  - Uses the latest matched approved daily report `realFinishRate` for current project completion progress, with `100` as fallback
-  - Uses the latest matched approved daily report `submissionTime` for current-week actual completion time, with WBS planned end time as fallback
-  - Generates the weekly summary before next-week WBS insertion and saves current-week changes plus `本周执行情况` together
-  - Generates next-week WBS plan rows into `executionNext` before saving
-  - Queries `ProjectPlanDetailService/query` with the maximum page length for next-week WBS candidates
-  - Resolves next week from Monday to Sunday and applies built-in China holiday/workday overrides
-  - Selects WBS tasks whose planned date range intersects next week's workdays
-  - Maps WBS `roleId` / `roleName` into weekly-plan `majorPerson` / `majorPersonName`
-  - Leaves person fields empty for owner `待定`, while still splitting planned hours
-  - Skips WBS candidates that have neither an owner nor planned duration
-  - Splits planned hours into rows capped at 24h each, for example `24 + 16`
-  - Sets generated WBS plan completion time to next Sunday `17:30:00`
-  - Writes modified rows into DataTables change store
-  - Triggers `WkFormJS.saveAll()`
-  - Reads current project weekly report context
-  - Caches generated daily-task JSON per weekly report from batch work data
-  - Streams AI summary into `本周执行情况`
-  - Uses the already fetched daily-report rows instead of requesting task details again
-- AI weekly summary configuration
-  - Click the extension icon to open the popup
-  - Supports OpenAI-compatible `baseUrl`, API key, model selection, and editable system prompt
-  - Fetches models from `{baseUrl}/models`
-  - Streams chat completions from `{baseUrl}/chat/completions`
-- Weekly report approval list page
-  - Detects route `#!/project/WkReportService/wkreportListPage`
-  - Injects `批量审核`
-  - Loads pending weekly reports for the current selected month and production owner
-  - Shows `待审核项目列表` with project name and project manager before approval
-  - Approves confirmed reports sequentially with `500ms + random(0~999ms)` delay
-  - Rechecks production owner and pending status before every approval
+- 日报审核：查询未审批日报，按顺序提交审批并反馈进度。
+- 批量报工：支持“一键报工”“仅填周报”“仅填工时”“仅填计划”四种模式。
+- 周报总结：通过 OpenAI-compatible 接口流式接收 reasoning、正文、完成和错误事件。
+- 下周计划：按 WBS、工作日、人员和工时规则生成下周执行行。
+- 周报审核：预览待审核项目，复查负责人和状态后逐条批复。
+- 项目负责人覆盖：可在 popup 中配置 `projectManager`，统一改写同源 JXMIS 请求。
 
-## Files
+## 安装依赖
 
-- `manifest.json`: extension manifest
-- `background.js`: OpenAI-compatible model list and streaming chat proxy
-- `popup.html`: extension popup for AI weekly summary settings
-- `popup.css`: popup styles
-- `popup.js`: popup storage and model refresh logic
-- `content.js`: injects UI and coordinates page actions
-- `jxmis-transport.js`: shared page-context transport helpers for messages, base URL resolution, JSON fetch, and delays
-- `wbs-plan.js`: pure next-week WBS plan generation rules used by batch work
-- `daily-actual.js`: pure daily-report matching rules for actual hours, finish rate, and actual end time
-- `page-batch-approve.js`: batch daily approval logic in page context
-- `page-batch-work.js`: batch work-report fill and save logic in page context
-- `page-batch-weekly-approve.js`: batch weekly report approval logic in page context
-- `package.json`: Node test script using the built-in test runner
-- `test/`: unit tests for shared transport, WBS planning, and daily actual matching
-- `日报审核接口文档.md`: captured interface notes for daily approval flow
-- `周报批量审核接口说明文档.md`: captured interface notes for weekly approval flow
-
-## Development
-
-Run unit tests:
+仓库使用 npm lockfile，首次安装或 CI 环境使用：
 
 ```bash
-npm test
+npm ci
 ```
 
-Run syntax checks for extension scripts:
+项目未在 `package.json` 中固定 Node.js 版本；当前构建与测试基于支持 ESM、`structuredClone` 和 `fs.watch` 递归监听的现代 Node.js。
+
+## 构建和加载
+
+1. 生成开发构建：
+
+   ```bash
+   npm run build
+   ```
+
+2. 打开 `chrome://extensions/`，启用“开发者模式”。
+3. 点击“加载已解压的扩展程序”，选择仓库下的 `dist/`，不要选择仓库根目录或 `src/`。
+4. 更新源码后重新执行构建，并在扩展管理页点击刷新。
+
+扩展依赖当前 JXMIS 页面登录会话；会话过期时，同源自动化请求会失败。
+
+## 常用命令
+
+| 命令 | 作用 |
+|---|---|
+| `npm run build` | 清理并生成可加载的开发产物到 `dist/` |
+| `npm run build:test` | 生成带 loopback fixture 权限的 `dist-test/` |
+| `npm run dev` | 监听 `src/` 并持续重建 `dist/` |
+| `npm run test:unit` | 运行 Node 单元测试和工作流契约测试 |
+| `npm run test:e2e` | 构建 `dist-test/` 并运行离线 Chromium 扩展测试 |
+| `npm run verify` | 串行执行生产构建、Node 测试和离线浏览器测试 |
+| `npm run package` | 生产压缩构建并生成 `release/jxmis-extension.zip` |
+
+首次运行浏览器测试前，如本机尚无 Playwright Chromium：
 
 ```bash
-node --check content.js page-batch-approve.js page-batch-weekly-approve.js page-batch-work.js background.js popup.js defaults.js jxmis-transport.js wbs-plan.js daily-actual.js
+npx playwright install chromium
 ```
 
-Shared page-context modules are loaded by `content.js` before the page automation scripts:
+## 源码结构
 
-- `jxmis-transport.js` before all page scripts
-- `wbs-plan.js` and `daily-actual.js` before `page-batch-work.js`
+```text
+src/
+├── entries/       # 六个 esbuild 入口
+├── background/    # 配置、cache、模型请求和 SSE 生命周期
+├── content/       # 页面识别、控件、bundle 注入和消息桥
+├── page/          # 运行在 JXMIS MAIN world 的三类业务自动化
+├── popup/         # popup 静态资源和表单 runtime
+├── shared/        # 跨运行环境协议、默认值和 AI request body
+└── manifest.json  # 生产 manifest 源
+```
 
-## Supported Pages
+`src/` 是唯一运行时源码目录，`dist/` 是唯一 Chrome 加载目录。根目录不再保留旧的运行时脚本或 manifest。
 
-- `https://jxmis.cyberwing.cn/jxpmo/index/frame*`
-  - `#!/project/WkReportService/wkreportListPage`
-- `https://jxmis.cyberwing.cn/jxpmo/project/ProjectRapportService/dailyApprovalPage*`
-- `https://jxmis.cyberwing.cn/jxpmo/project/WkReportService/id/*`
+六个稳定 JS 产物为：
 
-## Install
+- `dist/background.js`
+- `dist/content.js`
+- `dist/popup.js`
+- `dist/page-daily-approval.js`
+- `dist/page-batch-work.js`
+- `dist/page-weekly-approval.js`
 
-1. Open `chrome://extensions/`
-2. Enable `Developer mode`
-3. Click `Load unpacked`
-4. Select repository root folder
+详细运行环境、消息流、module interface 和 adapter seam 见 [项目架构说明](docs/项目架构说明.md)。历史问题及落实状态见 [项目架构优化建议](docs/项目架构优化建议.md)。
 
-## Notes
+## Popup 配置
 
-- Extension relies on current logged-in page session
-- Requests use same-origin cookies from active JXMIS page
-- If session expires, automation requests fail
+点击扩展图标可配置：
+
+- 模型厂商：DeepSeek、ModelScope 或 OpenAI-compatible。
+- 模型 URL、API Key 和模型名。
+- 思考模式开关。
+- 周报总结 System Prompt。
+- 项目经理 ID 覆盖值。
+
+配置保存在 `chrome.storage.local`。模型列表通过 `{baseUrl}/models` 获取，周报总结通过 `{baseUrl}/chat/completions` 请求。
+
+## 支持页面
+
+- JXMIS 日报审核页面。
+- 路径包含 `/project/WkReportService/id/` 的周报填报页面。
+- hash 包含 `/project/WkReportService/wkreportListPage` 的周报审核列表页面。
+
+生产 content scripts 仅匹配 `https://jxmis.cyberwing.cn/jxpmo/*`。loopback 权限只存在于 `dist-test/manifest.json`，不会进入 `dist/` 或发布 ZIP。
+
+## 测试边界
+
+`npm run verify` 当前覆盖 97 个 Node 单元/集成测试和 3 个离线 Chromium 扩展测试。浏览器 fixture 验证扩展加载、页面 matcher、单 page bundle 注入、按钮和状态、fake `WkFormJS.saveAll()`、AI success/error 生命周期，并断言不会请求真实 JXMIS 域名。
+
+自动化测试不读取账号、Cookie 或真实 JXMIS 数据，也不会执行真实审批和保存。真实环境的日报审批、四种报工模式、保存顺序、周报审核、popup 和项目负责人覆盖仍须按 [项目架构说明](docs/项目架构说明.md) 中的清单人工验证。
+
+## 发布
+
+```bash
+npm run verify
+npm run package
+```
+
+发布包位于 `release/jxmis-extension.zip`，ZIP 根目录直接包含 manifest.json 和全部六个 JS 入口。`dist/`、`dist-test/`、`release/`、Playwright trace 和报告均为生成物，不提交 Git。

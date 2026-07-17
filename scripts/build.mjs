@@ -2,27 +2,9 @@ import { readFile, rm, mkdir, writeFile, copyFile, watch } from "node:fs/promise
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { build as esbuildBuild, transform } from "esbuild";
+import { build as esbuildBuild } from "esbuild";
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const LEGACY_SCRIPTS = [
-  "ai-request-body.js",
-  "background.js",
-  "content.js",
-  "current-week-execution-plan.js",
-  "daily-actual.js",
-  "defaults.js",
-  "jxmis-transport.js",
-  "page-batch-approve.js",
-  "page-batch-weekly-approve.js",
-  "page-batch-work.js",
-  "popup.js",
-  "project-manager-override.js",
-  "wbs-plan.js",
-  "weekly-context.js",
-  "weekly-detail.js",
-  "weekly-summary.js"
-];
 const BUNDLED_ENTRIES = {
   background: path.join(ROOT_DIR, "src", "entries", "background.js"),
   content: path.join(ROOT_DIR, "src", "entries", "content.js"),
@@ -71,20 +53,6 @@ function createManifest(source, mode) {
     }
   });
   return manifest;
-}
-
-async function transformLegacyScript(fileName, outputDir, mode) {
-  const sourcePath = path.join(ROOT_DIR, fileName);
-  const source = await readFile(sourcePath, "utf8");
-  const result = await transform(source, {
-    format: "iife",
-    loader: "js",
-    minify: mode === "production",
-    sourcefile: fileName,
-    sourcemap: mode === "production" ? false : "inline",
-    target: "chrome110"
-  });
-  await writeFile(path.join(outputDir, fileName), result.code, "utf8");
 }
 
 async function writeStaticFiles(outputDir, mode) {
@@ -152,11 +120,6 @@ export async function runBuild(options = {}) {
   await rm(outputDir, { recursive: true, force: true });
   await mkdir(outputDir, { recursive: true });
 
-  await Promise.all(
-    LEGACY_SCRIPTS.map(function (fileName) {
-      return transformLegacyScript(fileName, outputDir, mode);
-    })
-  );
   await bundleEntries(outputDir, mode);
   await writeStaticFiles(outputDir, mode);
   await validateOutput(outputDir);
@@ -180,15 +143,10 @@ async function runWatch(mode) {
   };
 
   rebuild();
-  const watcher = watch(ROOT_DIR, { recursive: false });
+  const watcher = watch(ROOT_DIR, { recursive: true });
   for await (const event of watcher) {
-    const fileName = String(event.filename || "");
-    if (
-      LEGACY_SCRIPTS.includes(fileName) ||
-      fileName === "manifest.json" ||
-      fileName === "popup.html" ||
-      fileName === "popup.css"
-    ) {
+    const fileName = String(event.filename || "").split(path.sep).join("/");
+    if (fileName.startsWith("src/")) {
       rebuild();
     }
   }
