@@ -1,7 +1,6 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-
-const weeklyDetail = require("../weekly-detail");
+import assert from "node:assert/strict";
+import test from "node:test";
+import * as weeklyDetail from "../../src/page/shared/weekly-detail.js";
 
 test("normalizes first item from array payload", function () {
   assert.deepEqual(weeklyDetail.normalizeWeeklyDetail([{ id: "wk-1" }]), { id: "wk-1" });

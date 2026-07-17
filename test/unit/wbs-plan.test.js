@@ -1,6 +1,6 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const wbsPlan = require("../wbs-plan");
+import assert from "node:assert/strict";
+import test from "node:test";
+import * as wbsPlan from "../../src/page/batch-work/wbs-plan.js";
 
 function context(overrides) {
   return Object.assign(

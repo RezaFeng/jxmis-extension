@@ -1,14 +1,8 @@
-const assert = require("node:assert/strict");
-const path = require("node:path");
-const test = require("node:test");
-const { pathToFileURL } = require("node:url");
+import assert from "node:assert/strict";
+import test from "node:test";
+import * as protocol from "../../src/shared/protocol.js";
 
-const protocolPromise = import(
-  pathToFileURL(path.resolve(__dirname, "..", "..", "src", "shared", "protocol.js")).href
-);
-
-test("creates known messages without allowing source or type overrides", async function () {
-  const protocol = await protocolPromise;
+test("creates known messages without allowing source or type overrides", function () {
   const message = protocol.createMessage(
     protocol.SOURCES.WORK_PAGE,
     protocol.MESSAGE_TYPES.WORK_RUNNING,
@@ -28,8 +22,7 @@ test("creates known messages without allowing source or type overrides", async f
   });
 });
 
-test("requires request ids for request-response message types", async function () {
-  const protocol = await protocolPromise;
+test("requires request ids for request-response message types", function () {
   const missing = protocol.parseMessage({
     source: protocol.SOURCES.WORK_PAGE,
     type: protocol.MESSAGE_TYPES.AI_REQUEST,
@@ -47,8 +40,7 @@ test("requires request ids for request-response message types", async function (
   assert.equal(protocol.parseMessage(message).ok, true);
 });
 
-test("rejects wrong sources, types, and window senders", async function () {
-  const protocol = await protocolPromise;
+test("rejects wrong sources, types, and window senders", function () {
   const message = protocol.createMessage(
     protocol.SOURCES.DAILY_PAGE,
     protocol.MESSAGE_TYPES.DAILY_DONE,
@@ -73,8 +65,7 @@ test("rejects wrong sources, types, and window senders", async function () {
   assert.equal(protocol.parseMessage({ source: "unknown", type: "unknown" }).ok, false);
 });
 
-test("validates AI port lifecycle events", async function () {
-  const protocol = await protocolPromise;
+test("validates AI port lifecycle events", function () {
   assert.equal(
     protocol.parseAiPortEvent({
       type: protocol.AI_PORT_TYPES.START,
@@ -95,8 +86,7 @@ test("validates AI port lifecycle events", async function () {
   );
 });
 
-test("creates cache results with stable response types", async function () {
-  const protocol = await protocolPromise;
+test("creates cache results with stable response types", function () {
   const result = protocol.createCacheResult(
     protocol.SOURCES.WORK_CONTENT,
     protocol.MESSAGE_TYPES.CACHE_GET,

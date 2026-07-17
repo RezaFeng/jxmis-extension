@@ -1,10 +1,11 @@
-const assert = require("node:assert/strict");
-const { readFile } = require("node:fs/promises");
-const path = require("node:path");
-const test = require("node:test");
-const { spawn } = require("node:child_process");
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-const rootDir = path.resolve(__dirname, "..", "..");
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function runBuild(mode) {
   return new Promise(function (resolve, reject) {

@@ -1,7 +1,6 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-
-const weeklySummary = require("../weekly-summary");
+import assert from "node:assert/strict";
+import test from "node:test";
+import * as weeklySummary from "../../src/page/batch-work/weekly-summary.js";
 
 function context(overrides) {
   return Object.assign(

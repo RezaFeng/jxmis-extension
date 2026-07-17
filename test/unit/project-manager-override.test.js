@@ -1,6 +1,6 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const override = require("../project-manager-override");
+import assert from "node:assert/strict";
+import test from "node:test";
+import * as override from "../../src/page/shared/project-manager-override.js";
 
 const pageWindow = {
   location: {

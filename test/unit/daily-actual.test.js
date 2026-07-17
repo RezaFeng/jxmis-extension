@@ -1,6 +1,6 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const dailyActual = require("../daily-actual");
+import assert from "node:assert/strict";
+import test from "node:test";
+import * as dailyActual from "../../src/page/batch-work/daily-actual.js";
 
 function context() {
   return {

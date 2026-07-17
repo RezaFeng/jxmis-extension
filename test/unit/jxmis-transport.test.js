@@ -1,6 +1,6 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const transport = require("../jxmis-transport");
+import assert from "node:assert/strict";
+import test from "node:test";
+import * as transport from "../../src/page/shared/jxmis-transport.js";
 
 function storageWith(value) {
   return {

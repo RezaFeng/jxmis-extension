@@ -1,8 +1,7 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-
-const weeklyContext = require("../weekly-context");
-const weeklyDetail = require("../weekly-detail");
+import assert from "node:assert/strict";
+import test from "node:test";
+import * as weeklyContext from "../../src/page/batch-work/weekly-context.js";
+import * as weeklyDetail from "../../src/page/shared/weekly-detail.js";
 
 function fakeDocument(elements) {
   return {

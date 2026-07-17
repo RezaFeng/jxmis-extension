@@ -1,7 +1,6 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-
-const aiRequests = require("../ai-request-body");
+import assert from "node:assert/strict";
+import test from "node:test";
+import * as aiRequests from "../../src/shared/ai-request-body.js";
 
 function createBody(overrides) {
   return aiRequests.createChatRequestBody(

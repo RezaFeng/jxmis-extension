@@ -1,7 +1,6 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-
-const currentWeekPlan = require("../current-week-execution-plan");
+import assert from "node:assert/strict";
+import test from "node:test";
+import * as currentWeekPlan from "../../src/page/batch-work/current-week-execution-plan.js";
 
 function actualTime(overrides) {
   return Object.assign(

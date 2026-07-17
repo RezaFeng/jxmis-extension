@@ -1,6 +1,7 @@
 {
   "name": "jxmis-extension",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:test": "node scripts/build.mjs --mode=test",
