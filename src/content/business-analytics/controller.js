@@ -2,6 +2,7 @@ import { createAnalyticsConfig, migrateStoredConfig } from "../../analytics/conf
 import { getDefaultDateRange } from "../../analytics/date-range.js";
 import { normalizeDateRange } from "../../analytics/domain.js";
 import { DEFAULTS } from "../../shared/defaults.js";
+import { createAnalyticsEngine } from "../../analytics/engine.js";
 import { MESSAGE_TYPES, SOURCES, createRequestMessage, parseWindowMessage } from "../../shared/protocol.js";
 import { createBusinessAnalyticsNavigation } from "./navigation.js";
 import { createBusinessAnalyticsReportView } from "./report-view.js";
@@ -10,6 +11,7 @@ export function createBusinessAnalyticsController(adapters) {
   const window = adapters.window;
   const chrome = adapters.chrome;
   let controller;
+  const engine = createAnalyticsEngine();
   const navigation = createBusinessAnalyticsNavigation({
     window,
     document: adapters.document
@@ -17,12 +19,15 @@ export function createBusinessAnalyticsController(adapters) {
   const view = createBusinessAnalyticsReportView({
     document: adapters.document,
     cssUrl: chrome.runtime.getURL("business-analytics.css"),
-    onAction: function (action) { controller.handleAction(action); }
+    onAction: function (action) { controller.handleAction(action); },
+    onSelection: function (projectIds) { controller.selectProjects(projectIds); }
   });
   let config;
   let activeRequestId = null;
   let lastQuery = null;
   let requestSequence = 0;
+  let formalInput = null;
+  let formalReport = null;
 
   function requestId(prefix) {
     requestSequence += 1;
@@ -110,6 +115,18 @@ export function createBusinessAnalyticsController(adapters) {
     if (action === "settings") chrome.runtime.openOptionsPage();
   }
 
+  function selectProjects(projectIds) {
+    if (!formalInput || !formalReport) return;
+    if (!projectIds || projectIds.length === formalInput.projects.length) {
+      view.renderReport(formalReport, { formal: false });
+      return;
+    }
+    const report = engine.buildReport(Object.assign({}, formalInput, {
+      selectedProjectIds: projectIds
+    }));
+    view.renderReport(report, { formal: false });
+  }
+
   function handlePageMessage(event) {
     const parsed = parseWindowMessage(event, {
       windowRef: window,
@@ -145,8 +162,19 @@ export function createBusinessAnalyticsController(adapters) {
       return;
     }
     if (result.projects.length === 0) view.renderState({ kind: "empty" });
-    else view.renderState({ kind: result.complete ? "ready" : "partial" });
-    view.renderResult(result);
+    else {
+      formalInput = Object.assign({}, result, {
+        departmentId: lastQuery.departmentId,
+        departmentName: lastQuery.departmentName,
+        configVersion: config.configVersion,
+        policyVersion: config.policyVersion,
+        riskThresholds: config.riskThresholds,
+        capturedAt: new Date().toISOString()
+      });
+      formalReport = engine.buildReport(formalInput);
+      view.renderState({ kind: result.complete ? "ready" : "partial" });
+      view.renderReport(formalReport, { formal: true });
+    }
   }
 
   function ensureNavigation() {
@@ -162,6 +190,6 @@ export function createBusinessAnalyticsController(adapters) {
   }
 
   window.addEventListener("message", handlePageMessage);
-  controller = { open, query, cancel, handleAction, ensureNavigation, syncLocation };
+  controller = { open, query, cancel, handleAction, selectProjects, ensureNavigation, syncLocation };
   return controller;
 }

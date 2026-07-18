@@ -23,5 +23,22 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .progress { width: min(520px, 100%); height: 6px; margin-top: 18px; overflow: hidden; border-radius: 3px; background: #dfe4e8; }
 .progress span { display: block; width: 12%; height: 100%; background: #1769aa; transition: width .2s ease; }
 .report-summary { padding: 18px 0; color: #3f4a54; }
+.report-section { padding: 22px 0; border-bottom: 1px solid #d7dde3; }
+.report-section h2 { margin: 0 0 14px; color: #20262d; font-size: 17px; }
+.executive { border-left: 4px solid #c23b3b; padding-left: 16px; }
+.executive p { margin: 0; }
+.metric-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.metric-card { min-width: 0; min-height: 92px; display: flex; flex-direction: column; justify-content: space-between; padding: 13px; border: 1px solid #d5dbe1; border-radius: 6px; background: #fff; }
+.metric-card span { overflow: hidden; color: #68737e; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.metric-card strong { color: #20262d; font-size: 18px; font-weight: 650; }
+.metric-card strong.unavailable { color: #8a5a28; font-size: 13px; }
+.project-filters { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(120px, 160px)) auto auto; gap: 8px; align-items: center; margin-bottom: 12px; }
+.project-filters span { color: #5b6670; white-space: nowrap; }
+.table-scroll { width: 100%; overflow-x: auto; border: 1px solid #d5dbe1; background: #fff; }
+table { width: 100%; min-width: 1580px; border-collapse: collapse; }
+th, td { padding: 9px 10px; border-bottom: 1px solid #e3e7eb; text-align: left; white-space: nowrap; }
+th { position: sticky; top: 0; background: #eef1f4; color: #4c5761; font-size: 12px; }
+tbody tr:hover { background: #f6f8fa; }
 @media (max-width: 1080px) { .report-toolbar { grid-template-columns: 36px 1fr 1fr 1fr; align-items: end; } .toolbar-actions { grid-column: 2 / -1; flex-wrap: wrap; } .data-status { grid-column: 1 / -1; } }
+@media (max-width: 1180px) { .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .project-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 680px) { .report-toolbar { position: static; grid-template-columns: 36px 1fr; } .report-toolbar label { grid-column: 1 / -1; } .toolbar-actions { grid-column: 1 / -1; } .report-content { width: calc(100% - 24px); padding-top: 12px; } }
