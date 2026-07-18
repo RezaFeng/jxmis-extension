@@ -96,3 +96,58 @@ export function selectDepartmentProjects(scope, departmentId) {
   }
   return (scope.projectsByDepartment.get(String(departmentId)) || []).slice();
 }
+
+function inputHoursByProject(rows) {
+  const result = new Map();
+  (rows || []).forEach(function (row) {
+    const projectId = String(row.projectId);
+    result.set(projectId, (result.get(projectId) || 0) + row.realHour);
+  });
+  return result;
+}
+
+export function applyCurrentPeriodInputScope(input) {
+  const candidates = (input.projects || []).slice();
+  const onlyCurrentPeriodInput = input.onlyCurrentPeriodInput !== false;
+  const currentAvailable = input.currentAvailable !== false;
+  const previousAvailable = input.previousAvailable !== false;
+  const currentHours = currentAvailable ? inputHoursByProject(input.currentDailyRows) : null;
+  const previousHours = previousAvailable ? inputHoursByProject(input.previousDailyRows) : null;
+  const projects = onlyCurrentPeriodInput && currentAvailable
+    ? candidates.filter(function (project) {
+      return (currentHours.get(String(project.projectId)) || 0) > 0;
+    })
+    : candidates;
+  const rangesKnown = currentAvailable && previousAvailable;
+  const enteredProjectIds = rangesKnown ? [] : null;
+  const exitedProjectIds = rangesKnown ? [] : null;
+  const rangeChangeProjects = rangesKnown ? [] : null;
+  if (rangesKnown) {
+    candidates.forEach(function (project) {
+      const projectId = String(project.projectId);
+      const current = currentHours.get(projectId) || 0;
+      const previous = previousHours.get(projectId) || 0;
+      if (current > 0 && previous === 0) enteredProjectIds.push(projectId);
+      if (current === 0 && previous > 0) exitedProjectIds.push(projectId);
+      if ((current > 0) !== (previous > 0)) {
+        rangeChangeProjects.push({
+          projectId,
+          projectNo: project.projectNo || null,
+          projectName: project.projectName,
+          currentInputMd: current / 8,
+          previousInputMd: previous / 8
+        });
+      }
+    });
+  }
+  return {
+    projects,
+    candidateProjectCount: candidates.length,
+    formalProjectCount: onlyCurrentPeriodInput && !currentAvailable ? null : projects.length,
+    onlyCurrentPeriodInput,
+    status: onlyCurrentPeriodInput ? (currentAvailable ? "success" : "failed") : "notApplicable",
+    enteredProjectIds,
+    exitedProjectIds,
+    rangeChangeProjects
+  };
+}

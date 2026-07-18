@@ -134,6 +134,25 @@ export function aggregateWeeklyReports(reports) {
   };
 }
 
+export function splitWeeklyReportsByRange(result, currentRange, previousRange) {
+  function select(range) {
+    if (result.status === "notApplicable") {
+      return { status: "notApplicable", rows: [], replacedIds: [], aggregate: aggregateWeeklyReports([]) };
+    }
+    const selected = selectWeeklyReports(result.rows || [], range);
+    return {
+      status: selected.reports.length > 0 ? "success" : "empty",
+      rows: selected.reports,
+      replacedIds: selected.replacedIds,
+      aggregate: aggregateWeeklyReports(selected.reports)
+    };
+  }
+  return {
+    current: select(currentRange),
+    previous: select(previousRange)
+  };
+}
+
 export function weeklyReportApplies(project) {
   const value = project && project.isCreateWkReport;
   return ![false, 0, "0", "false", "N", "n", "否"].includes(value);

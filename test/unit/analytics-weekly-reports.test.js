@@ -5,6 +5,7 @@ import {
   normalizeWeeklyReportDetail,
   parseWeeklyRange,
   selectWeeklyReports,
+  splitWeeklyReportsByRange,
   weeklyReportApplies
 } from "../../src/page/business-analytics/weekly-reports.js";
 
@@ -25,6 +26,34 @@ test("analytics weekly reports parse list and explicit detail periods", function
   });
   assert.equal(report.summary, "完成上线");
   assert.equal(report.nextExecutions.length, 1);
+});
+
+test("analytics weekly reports split one fetch into current and previous periods", function () {
+  const rows = [
+    {
+      wkId: "W1",
+      startDate: "2026-06-29",
+      endDate: "2026-07-05",
+      currentExecutions: [],
+      nextExecutions: [{ planHour: 8 }]
+    },
+    {
+      wkId: "W2",
+      startDate: "2026-07-06",
+      endDate: "2026-07-12",
+      currentExecutions: [],
+      nextExecutions: [{ planHour: 16 }]
+    }
+  ];
+  const result = splitWeeklyReportsByRange(
+    { status: "success", rows },
+    { startDate: "2026-07-06", endDate: "2026-07-12" },
+    { startDate: "2026-06-29", endDate: "2026-07-05" }
+  );
+  assert.deepEqual(result.current.rows.map(function (item) { return item.wkId; }), ["W2"]);
+  assert.deepEqual(result.previous.rows.map(function (item) { return item.wkId; }), ["W1"]);
+  assert.equal(result.current.aggregate.nextExecutions[0].planHour, 16);
+  assert.equal(result.previous.aggregate.nextExecutions[0].planHour, 8);
 });
 
 test("analytics weekly reports select all intersections and latest period version", function () {

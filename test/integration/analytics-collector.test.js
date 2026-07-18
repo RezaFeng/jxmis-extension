@@ -9,7 +9,11 @@ function project(id) {
 function createData(options = {}) {
   let active = 0;
   let maxActive = 0;
+  const projectCalls = [];
+  const monthlyInvoiceCalls = [];
+  const weeklyRanges = [];
   async function perProject(source, id) {
+    projectCalls.push(source + ":" + id);
     active += 1;
     maxActive = Math.max(maxActive, active);
     await new Promise(function (resolve) { setTimeout(resolve, 1); });
@@ -25,13 +29,26 @@ function createData(options = {}) {
   }
   return {
     maxActive: function () { return maxActive; },
+    projectCalls: function () { return projectCalls; },
+    monthlyInvoiceCalls: function () { return monthlyInvoiceCalls; },
+    weeklyRanges: function () { return weeklyRanges; },
     fetchDepartments: async function () { return [{ id: "D1", text: "交付一部", attributes: { privLevel: "2" } }]; },
     fetchProjects: async function () { return Array.from({ length: options.count || 5 }, function (_, index) { return project("P" + index); }); },
-    fetchDailyRows: async function () { return { status: "empty", rows: [] }; },
-    fetchMonthlyInvoiceSupplement: async function () { return { status: "empty", rows: [], diagnostics: {} }; },
+    fetchDailyRows: async function (startDate, endDate) {
+      if (options.failDailyStart === startDate) throw new Error("HTTP 500 daily failed");
+      const rows = options.dailyRows ? options.dailyRows(startDate, endDate) : [];
+      return { status: rows.length > 0 ? "success" : "empty", rows };
+    },
+    fetchMonthlyInvoiceSupplement: async function (startDate, endDate) {
+      monthlyInvoiceCalls.push({ startDate, endDate });
+      return { status: "empty", rows: [], diagnostics: {} };
+    },
     fetchWbs: function (id) { return perProject("wbs", id); },
     fetchMilestones: function (id) { return perProject("milestones", id); },
-    fetchWeeklyReports: function (value) { return perProject("weekly", value.projectId); },
+    fetchWeeklyReports: function (value, range) {
+      weeklyRanges.push(range);
+      return perProject("weekly", value.projectId);
+    },
     fetchProjectInvoices: function (id) { return perProject("invoices", id); }
   };
 }
@@ -43,7 +60,13 @@ function request() {
     departmentName: "交付一部",
     startDate: "2026-07-06",
     endDate: "2026-07-12",
-    projectFilters: { attribute: null, classification: ["J"], currStatus: ["20"], outsourcing: null }
+    projectFilters: {
+      attribute: null,
+      classification: ["J"],
+      currStatus: ["20"],
+      outsourcing: null,
+      onlyCurrentPeriodInput: false
+    }
   };
 }
 
@@ -116,4 +139,88 @@ test("analytics collector scope-only mode does not fetch business details", asyn
   assert.equal(result.scopeOnly, true);
   assert.equal(result.scope.departments.length, 1);
   assert.equal(detailCalls, 0);
+});
+
+test("analytics collector narrows the formal scope from current input and diagnoses changes", async function () {
+  const data = createData({
+    count: 3,
+    dailyRows: function (startDate) {
+      if (startDate === "2026-07-06") {
+        return [
+          { projectId: "P0", realHour: 8, cost: 100 },
+          { projectId: "P2", realHour: 0, cost: 0 }
+        ];
+      }
+      return [{ projectId: "P1", realHour: 16, cost: 200 }];
+    }
+  });
+  const input = request();
+  input.projectFilters.onlyCurrentPeriodInput = true;
+  const result = await createAnalyticsCollector({ data }).collect(input);
+  assert.deepEqual(result.projects.map(function (item) { return item.projectId; }), ["P0"]);
+  assert.equal(result.formalScope.candidateProjectCount, 3);
+  assert.equal(result.formalScope.formalProjectCount, 1);
+  assert.deepEqual(result.formalScope.enteredProjectIds, ["P0"]);
+  assert.deepEqual(result.formalScope.exitedProjectIds, ["P1"]);
+  assert.ok(data.projectCalls().every(function (value) { return value.endsWith(":P0"); }));
+  assert.equal(data.monthlyInvoiceCalls().length, 1);
+  assert.deepEqual(data.weeklyRanges()[0], {
+    startDate: "2026-06-29",
+    endDate: "2026-07-12"
+  });
+});
+
+test("analytics collector requests each distinct ending month once", async function () {
+  const data = createData({ count: 1 });
+  const input = Object.assign({}, request(), {
+    startDate: "2026-07-01",
+    endDate: "2026-07-03"
+  });
+  await createAnalyticsCollector({ data }).collect(input);
+  assert.deepEqual(data.monthlyInvoiceCalls(), [
+    { startDate: "2026-07-01", endDate: "2026-07-31" },
+    { startDate: "2026-06-01", endDate: "2026-06-30" }
+  ]);
+});
+
+test("analytics collector keeps technical daily failure distinct from zero input", async function () {
+  const data = createData({ count: 2, failDailyStart: "2026-07-06" });
+  const input = request();
+  input.projectFilters.onlyCurrentPeriodInput = true;
+  const result = await createAnalyticsCollector({ data, sleep: async function () {} }).collect(input);
+  assert.equal(result.formalScope.status, "failed");
+  assert.equal(result.formalScope.formalProjectCount, null);
+  assert.equal(result.projects.length, 2);
+  assert.ok(result.failedRequests.some(function (item) { return item.source === "daily"; }));
+});
+
+test("analytics collector stops project requests for a known empty formal scope", async function () {
+  const data = createData({ count: 2 });
+  const input = request();
+  input.projectFilters.onlyCurrentPeriodInput = true;
+  const result = await createAnalyticsCollector({ data }).collect(input);
+  assert.equal(result.formalScope.formalProjectCount, 0);
+  assert.deepEqual(result.projects, []);
+  assert.deepEqual(data.projectCalls(), []);
+});
+
+test("analytics collector reapplies the formal scope after retrying current daily input", async function () {
+  const data = createData({ count: 2, failDailyStart: "2026-07-06" });
+  const input = request();
+  input.projectFilters.onlyCurrentPeriodInput = true;
+  const collector = createAnalyticsCollector({ data, sleep: async function () {} });
+  const partial = await collector.collect(input);
+  data.fetchDailyRows = async function (startDate) {
+    const rows = startDate === "2026-07-06"
+      ? [{ projectId: "P1", realHour: 8, cost: 100 }]
+      : [];
+    return { status: rows.length > 0 ? "success" : "empty", rows };
+  };
+  const retried = await collector.retryFailed(
+    Object.assign({}, input, { requestId: "R2" }),
+    partial
+  );
+  assert.deepEqual(retried.projects.map(function (item) { return item.projectId; }), ["P1"]);
+  assert.equal(retried.formalScope.formalProjectCount, 1);
+  assert.equal(retried.complete, true);
 });

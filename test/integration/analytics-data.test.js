@@ -99,7 +99,7 @@ test("analytics data skips projects without a department", async function () {
   assert.deepEqual(projects.map(function (project) { return project.projectId; }), ["P1"]);
 });
 
-test("analytics data requires daily cost and normalizes date and hours", async function () {
+test("analytics data normalizes daily date, hours and blank cost", async function () {
   let invalidCost = false;
   const data = createJxpmoAnalyticsData({
     location: { origin: "https://jxmis.example.com" },
@@ -117,7 +117,7 @@ test("analytics data requires daily cost and normalizes date and hours", async f
   assert.equal(result.status, "success");
   assert.deepEqual(result.rows[0], { projectId: "P1", taskDate: "2026-07-08", realHour: 8, cost: 120.5 });
   invalidCost = true;
-  await assert.rejects(data.fetchDailyRows("2026-07-06", "2026-07-12"), /daily.cost: is required/);
+  assert.equal((await data.fetchDailyRows("2026-07-06", "2026-07-12")).rows[0].cost, 0);
 });
 
 test("analytics data distinguishes empty WBS and normalizes milestone completion", async function () {
@@ -129,10 +129,24 @@ test("analytics data distinguishes empty WBS and normalizes milestone completion
       if (query.get("queryName") === "queryLandmark") {
         return { ok: true, json: async function () { return { rows: [{ detailId: "M1", detailName: "上线", planEndTime: "2026-07-12 00:00:00", realEndTime: "2026-07-11", confirmStatus: 2 }] }; } };
       }
-      return { ok: true, json: async function () { return { rows: [{ detailId: "W0", costLevel: null }] }; } };
+      return {
+        ok: true,
+        json: async function () {
+          return { rows: [{ detailId: "W0", costLevel: null, planEndTime: "2026-07-12" }] };
+        }
+      };
     }
   });
-  assert.deepEqual(await data.fetchWbs("P1"), { status: "empty", rows: [] });
+  assert.deepEqual(await data.fetchWbs("P1"), {
+    status: "success",
+    rows: [{
+      detailId: "W0",
+      detailName: null,
+      costLevel: 0,
+      planEndTime: "2026-07-12",
+      actualEndTime: null
+    }]
+  });
   const milestones = await data.fetchMilestones("P1");
   assert.equal(milestones.status, "success");
   assert.deepEqual(milestones.rows[0], {
