@@ -196,31 +196,61 @@ async function queryDepartment(host, departmentId, projectName) {
   await expect(host.getByText(projectName, { exact: true }).first()).toBeVisible();
 }
 
-test("business analytics fixture covers reports, departments, company cache and export", async function () {
+async function analyticsRequestCount(page, pathname) {
+  return page.evaluate(function (expectedPathname) {
+    return (window.__fixtureAnalyticsRequests || []).filter(function (request) {
+      return request.pathname === expectedPathname;
+    }).length;
+  }, pathname);
+}
+
+test("business analytics fixture uses live formal scope, comparison and export", async function () {
   const { page, host } = await openAnalytics();
   await expectOnlyPageBundle(page, "cw-business-analytics-page-script", "page-business-analytics.js");
+  await expect(host.locator('[data-field="department"] option[value="D1"]')).toContainText("2");
 
   await queryDepartment(host, "D1", "Fixture Project One");
-  await expect(host.getByRole("heading", { name: "本周有投入项目经营" })).toBeVisible();
+  await expect(host.locator('[data-role="report-status"]')).toContainText("正式范围 1/2");
+  await expect(host.getByText("Fixture Project Three", { exact: true })).toHaveCount(0);
+  await expect(host.getByRole("heading", { name: "本期经营与上期比较" })).toBeVisible();
+  await expect(host.getByRole("row", { name: /投入人天 1 0\.5 0\.5 100%/ })).toBeVisible();
+  const contractCard = host.locator('[data-role="overview-cards"] article').filter({ hasText: "软件与服务合同" });
+  await expect(contractCard.locator("strong")).toHaveText("0 万元");
+  const efficiencyCard = host.locator('[data-role="overview-cards"] article').filter({ hasText: "成本效率" });
+  await expect(efficiencyCard.locator("strong")).toHaveText(["0.00", "0.00"]);
   await expect(host.getByRole("heading", { name: "数据完整性与诊断" })).toBeVisible();
+
+  const dailyBeforeRefresh = await analyticsRequestCount(page, "/jxpmo/rest/project/taskDetailService/query");
+  await host.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(host.locator('[data-role="data-status"]')).toHaveText("报告已生成");
+  await expect.poll(function () {
+    return analyticsRequestCount(page, "/jxpmo/rest/project/taskDetailService/query");
+  }).toBe(dailyBeforeRefresh + 2);
 
   const downloadPromise = page.waitForEvent("download");
   await host.getByRole("button", { name: "导出HTML", exact: true }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^经营分析_交付一部_/);
 
-  await queryDepartment(host, "D2", "Fixture Project Two");
-  await expect.poll(async function () {
-    return serviceWorker.evaluate(async function () {
-      const databases = await indexedDB.databases();
-      return databases.some(function (item) { return item.name === "cw-business-analytics"; });
-    });
-  }).toBe(true);
+  const hasAnalyticsDatabase = await serviceWorker.evaluate(async function () {
+    const databases = await indexedDB.databases();
+    return databases.some(function (item) { return item.name === "cw-business-analytics"; });
+  });
+  expect(hasAnalyticsDatabase).toBe(false);
+  await page.close();
+});
+
+test("business analytics fixture aggregates all departments from one live collection", async function () {
+  const { page, host } = await openAnalytics();
+  const dailyBefore = await analyticsRequestCount(page, "/jxpmo/rest/project/taskDetailService/query");
   await host.locator('[data-field="department"]').selectOption("all");
   await host.getByRole("button", { name: "查询", exact: true }).click();
+  await expect(host.locator('[data-role="data-status"]')).toHaveText("报告已生成");
   await expect(host.getByRole("heading", { name: "全部部门总览" })).toBeVisible();
   await expect(host.locator('[data-role="company-analytics"] .coverage-summary'))
     .toHaveText("部门覆盖 2/2");
+  expect(await analyticsRequestCount(page, "/jxpmo/rest/project/taskDetailService/query"))
+    .toBe(dailyBefore + 2);
   await page.close();
 });
 
@@ -236,7 +266,16 @@ test("business analytics fixture preserves partial results and session expiry", 
   await partial.host.locator('[data-field="department"]').selectOption("D1");
   await partial.host.getByRole("button", { name: "查询", exact: true }).click();
   await expect(partial.host.locator('[data-role="data-status"]')).toHaveText("报告部分可用");
+  await expect(partial.host.getByText("未获取", { exact: true }).first()).toBeVisible();
   await expect(partial.host.getByRole("button", { name: "仅重试失败项" })).toBeVisible();
+  const dailyBeforeRetry = await analyticsRequestCount(
+    partial.page,
+    "/jxpmo/rest/project/taskDetailService/query"
+  );
+  await partial.host.getByRole("button", { name: "仅重试失败项" }).click();
+  await expect(partial.host.locator('[data-role="data-status"]')).toHaveText("报告已生成");
+  expect(await analyticsRequestCount(partial.page, "/jxpmo/rest/project/taskDetailService/query"))
+    .toBe(dailyBeforeRetry);
   await partial.page.close();
 
   const session = await openAnalytics("session");
@@ -246,15 +285,24 @@ test("business analytics fixture preserves partial results and session expiry", 
   await session.page.close();
 });
 
+test("business analytics fixture cancels an in-flight live query", async function () {
+  const { page, host } = await openAnalytics("slow");
+  await host.locator('[data-field="department"]').selectOption("D1");
+  await host.getByRole("button", { name: "查询", exact: true }).click();
+  const cancel = host.getByRole("button", { name: "取消", exact: true });
+  await expect(cancel).toBeVisible();
+  await cancel.click();
+  await expect(host.locator('[data-role="data-status"]')).toHaveText("已取消");
+  await expect(host.locator('[data-role="summary"]')).toBeHidden();
+  await page.close();
+});
+
 test("business analytics options page remains available", async function () {
   const extensionId = new URL(serviceWorker.url()).hostname;
   const page = await context.newPage();
   await page.goto("chrome-extension://" + extensionId + "/options.html");
   await expect(page.getByRole("heading", { name: "扩展设置" })).toBeVisible();
-  const clearCache = page.getByRole("button", { name: "清理原始缓存" });
-  await expect(clearCache).toBeEnabled();
-  page.once("dialog", function (dialog) { dialog.accept(); });
-  await clearCache.click();
-  await expect(page.getByRole("status")).toHaveText("经营分析原始缓存已清理。");
+  await expect(page.getByRole("button", { name: "清理原始缓存" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "清理全部历史" })).toHaveCount(0);
   await page.close();
 });

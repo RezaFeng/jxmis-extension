@@ -8,6 +8,7 @@ const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const FIXTURE_DIR = path.join(ROOT_DIR, "test", "fixtures");
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.FIXTURE_PORT || 4173);
+const analyticsAttempts = new Map();
 
 const PAGE_ROUTES = new Map([
   ["/jxpmo/fixtures/daily", "daily.html"],
@@ -40,16 +41,22 @@ function analyticsProject(index, departmentId) {
     projectManagerName: "Fixture PM " + index,
     isCreateWkReport: "1",
     contractAmount: 1200000,
-    subcontractAmount: 1000000,
+    subcontractAmount: index === 1 ? null : 1000000,
     estiExeuCost: 500000,
-    realExeuCost: 200000,
-    realWorkload: 261,
+    realExeuCost: index === 1 ? null : 200000,
+    realWorkload: index === 1 ? null : 261,
     planCompleteSchedule: 50,
     estiTravelCost: 0,
     realTravelCost: 0,
     purchaseCost: 0,
     purchaseAmount: 0
   };
+}
+
+function analyticsAttempt(key) {
+  const count = (analyticsAttempts.get(key) || 0) + 1;
+  analyticsAttempts.set(key, count);
+  return count;
 }
 
 function setCorsHeaders(response) {
@@ -98,39 +105,47 @@ function handleApi(url, request, response) {
   if (url.pathname === "/jxpmo/rest/project/ProjectInfoService/query") {
     const mode = analyticsMode(request);
     const start = Number(url.searchParams.get("start") || 0);
-    const total = mode === "paginated" ? 201 : 2;
+    const total = mode === "paginated" ? 201 : 3;
     const allRows = mode === "paginated"
       ? Array.from({ length: total }, function (_, index) {
           return analyticsProject(index + 1, index === 0 ? "D1" : "D2");
         })
-      : [analyticsProject(1, "D1"), analyticsProject(2, "D2")];
+      : [analyticsProject(1, "D1"), analyticsProject(2, "D2"), analyticsProject(3, "D1")];
     const length = Number(url.searchParams.get("length") || 200);
     sendJson(response, { rows: allRows.slice(start, start + length), recordsTotal: total });
     return true;
   }
   if (url.pathname === "/jxpmo/rest/project/taskDetailService/query") {
-    if (analyticsMode(request) === "session") {
+    const mode = analyticsMode(request);
+    if (mode === "session") {
       sendJson(response, { message: "login required" }, 401);
       return true;
     }
     const previous = url.searchParams.get("firstTaskDate") === "2026-06-29";
-    sendJson(response, {
-      rows: [1, 2].map(function (index) {
+    const payload = {
+      rows: (previous ? [1, 2, 3] : [1, 2]).map(function (index) {
         return {
           projectId: "P" + index,
           taskDate: previous ? "2026-07-03" : "2026-07-08",
-          realHour: previous ? 4 : 8,
-          cost: previous ? 400 : 800
+          realHour: previous && index === 3 ? 8 : previous ? 4 : 8,
+          cost: previous && index === 3 ? 800 : previous ? 400 : 800
         };
       }),
-      recordsTotal: 2
-    });
+      recordsTotal: previous ? 3 : 2
+    };
+    if (mode === "slow") {
+      setTimeout(function () { sendJson(response, payload); }, 750);
+    } else {
+      sendJson(response, payload);
+    }
     return true;
   }
   if (url.pathname === "/jxpmo/rest/project/ProjectPlanDetailService/query") {
     const queryName = url.searchParams.get("queryName");
     const projectId = url.searchParams.get("max1") || url.searchParams.get("projectId");
-    if (analyticsMode(request) === "partial" && queryName === "queryVer" && projectId === "P1") {
+    const failureKey = analyticsMode(request) + ":" + queryName + ":" + projectId;
+    if (analyticsMode(request) === "partial" && queryName === "queryVer" && projectId === "P1" &&
+      analyticsAttempt(failureKey) <= 3) {
       sendText(response, "fixture WBS failure", 500);
       return true;
     }
