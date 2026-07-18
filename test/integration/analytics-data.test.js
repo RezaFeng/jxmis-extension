@@ -73,3 +73,48 @@ test("analytics data uses same-origin endpoints and normalizes all project pages
   assert.equal(projectUrls.some(function (request) { return request.url.includes("likeAll"); }), false);
   assert.equal(projectUrls.some(function (request) { return request.url.includes("projectDept"); }), false);
 });
+
+test("analytics data requires daily cost and normalizes date and hours", async function () {
+  let invalidCost = false;
+  const data = createJxpmoAnalyticsData({
+    location: { origin: "https://jxmis.example.com" },
+    storage: { getItem: function () { return "/jxpmo"; } },
+    fetch: async function () {
+      return {
+        ok: true,
+        json: async function () {
+          return { recordsTotal: 1, rows: [{ projectId: "P1", costTime: "20260708", realHour: "8", cost: invalidCost ? null : "120.5" }] };
+        }
+      };
+    }
+  });
+  const result = await data.fetchDailyRows("2026-07-06", "2026-07-12");
+  assert.equal(result.status, "success");
+  assert.deepEqual(result.rows[0], { projectId: "P1", taskDate: "2026-07-08", realHour: 8, cost: 120.5 });
+  invalidCost = true;
+  await assert.rejects(data.fetchDailyRows("2026-07-06", "2026-07-12"), /daily.cost: is required/);
+});
+
+test("analytics data distinguishes empty WBS and normalizes milestone completion", async function () {
+  const data = createJxpmoAnalyticsData({
+    location: { origin: "https://jxmis.example.com" },
+    storage: { getItem: function () { return "/jxpmo"; } },
+    fetch: async function (url) {
+      const query = new URL(url).searchParams;
+      if (query.get("queryName") === "queryLandmark") {
+        return { ok: true, json: async function () { return { rows: [{ detailId: "M1", detailName: "上线", planEndTime: "2026-07-12 00:00:00", realEndTime: "2026-07-11", confirmStatus: 2 }] }; } };
+      }
+      return { ok: true, json: async function () { return { rows: [{ detailId: "W0", costLevel: null }] }; } };
+    }
+  });
+  assert.deepEqual(await data.fetchWbs("P1"), { status: "empty", rows: [] });
+  const milestones = await data.fetchMilestones("P1");
+  assert.equal(milestones.status, "success");
+  assert.deepEqual(milestones.rows[0], {
+    milestoneId: "M1",
+    nodeName: "上线",
+    planEndTime: "2026-07-12",
+    actualEndTime: "2026-07-11",
+    confirmStatus: "2"
+  });
+});

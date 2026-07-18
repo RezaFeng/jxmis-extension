@@ -1,5 +1,10 @@
 import { normalizeProject } from "../../analytics/domain.js";
 import { fetchJson, getBaseUrl } from "../shared/jxmis-transport.js";
+import {
+  normalizeDailyRow,
+  normalizeMilestoneRows,
+  normalizeWbsRows
+} from "./normalizers.js";
 
 const DEFAULT_PAGE_SIZE = 200;
 
@@ -104,5 +109,61 @@ export function createJxpmoAnalyticsData(adapters) {
     return [...byId.values()];
   }
 
-  return { fetchDepartments, fetchProjects };
+  async function fetchPagedEndpoint(path, params, label, signal) {
+    const rows = await fetchAllAnalyticsPages(async function (page) {
+      const query = new URLSearchParamsCtor(Object.assign({}, params, {
+        filterQuery: "true",
+        queryType: "page",
+        draw: String(page.page),
+        page: String(page.page),
+        start: String(page.offset),
+        length: String(page.pageSize),
+        rows: String(page.pageSize)
+      }));
+      return fetchJson(
+        function (url, options) { return fetchFn(url, Object.assign({}, options, { signal })); },
+        baseUrl() + path + "?" + query.toString(),
+        label + " page " + page.page
+      );
+    }, { pageSize });
+    return rows;
+  }
+
+  function result(rows) {
+    return { status: rows.length > 0 ? "success" : "empty", rows };
+  }
+
+  async function fetchDailyRows(startDate, endDate, signal) {
+    const rows = await fetchPagedEndpoint(
+      "/rest/project/taskDetailService/query",
+      { queryName: "queryTaskDetail", firstTaskDate: startDate, lastTaskDate: endDate },
+      "fetch analytics daily rows",
+      signal
+    );
+    return result(rows.map(normalizeDailyRow));
+  }
+
+  async function fetchWbs(projectId, signal) {
+    const id = String(projectId);
+    const rows = await fetchPagedEndpoint(
+      "/rest/project/ProjectPlanDetailService/query",
+      { queryName: "queryVer", max1: id, planId1: id },
+      "fetch analytics WBS " + id,
+      signal
+    );
+    return result(normalizeWbsRows(rows));
+  }
+
+  async function fetchMilestones(projectId, signal) {
+    const id = String(projectId);
+    const rows = await fetchPagedEndpoint(
+      "/rest/project/ProjectPlanDetailService/query",
+      { queryName: "queryLandmark", projectId: id },
+      "fetch analytics milestones " + id,
+      signal
+    );
+    return result(normalizeMilestoneRows(rows));
+  }
+
+  return { fetchDepartments, fetchProjects, fetchDailyRows, fetchWbs, fetchMilestones };
 }
