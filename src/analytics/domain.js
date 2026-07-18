@@ -125,6 +125,7 @@ export function normalizeProject(raw) {
     projectId: normalizeIdentifier(raw.projectId, "projectId", { required: true }),
     projectNo: normalizeIdentifier(raw.projectNo, "projectNo"),
     projectName: normalizeIdentifier(raw.projectName, "projectName", { required: true }),
+    contractNo: normalizeIdentifier(raw.contractNo ?? raw.contractCode, "contractNo"),
     attribute: normalizeIdentifier(raw.attribute, "attribute"),
     classification: normalizeIdentifier(raw.classification, "classification"),
     currStatus: normalizeIdentifier(raw.currStatus, "currStatus"),

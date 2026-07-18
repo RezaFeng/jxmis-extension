@@ -11,6 +11,7 @@ import {
   selectWeeklyReports,
   weeklyReportApplies
 } from "./weekly-reports.js";
+import { associateMonthlyInvoiceRows, normalizeInvoiceRows } from "./invoice.js";
 
 const DEFAULT_PAGE_SIZE = 200;
 
@@ -216,12 +217,44 @@ export function createJxpmoAnalyticsData(adapters) {
     };
   }
 
+  async function fetchProjectInvoices(projectId, signal) {
+    const id = String(projectId);
+    const rows = await fetchPagedEndpoint(
+      "/rest/project/queryProjectPlanService/query",
+      { queryName: "invoicePlanDetailList", projectId: id },
+      "fetch analytics project invoices " + id,
+      signal
+    );
+    return result(normalizeInvoiceRows(rows, id));
+  }
+
+  async function fetchMonthlyInvoiceSupplement(startDate, endDate, projects, signal) {
+    const rows = await fetchPagedEndpoint(
+      "/rest/contract/queryReceivedPlanService/query",
+      {
+        queryName: "queryMyList",
+        estimateReceivedDateStart: startDate,
+        estimateReceivedDateEnd: endDate
+      },
+      "fetch analytics monthly invoice supplement",
+      signal
+    );
+    const associated = associateMonthlyInvoiceRows(rows, projects);
+    return {
+      status: associated.rows.length > 0 ? "success" : "empty",
+      rows: associated.rows,
+      diagnostics: associated.diagnostics
+    };
+  }
+
   return {
     fetchDepartments,
     fetchProjects,
     fetchDailyRows,
     fetchWbs,
     fetchMilestones,
-    fetchWeeklyReports
+    fetchWeeklyReports,
+    fetchProjectInvoices,
+    fetchMonthlyInvoiceSupplement
   };
 }
