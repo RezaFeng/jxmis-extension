@@ -119,18 +119,21 @@ test("analytics engine marks temporary project selection as non-persistable", fu
   assert.deepEqual(report.tables.projects.map(function (project) { return project.projectId; }), ["P2"]);
 });
 
-test("analytics engine marks historical cumulative metrics unavailable", function () {
+test("analytics engine always calculates cumulative metrics from live project data", function () {
   const report = createAnalyticsEngine().buildReport(fixture({
     complete: false,
     cumulativeAvailable: false,
+    historyMode: "interval",
     startDate: "2026-06-01",
     endDate: "2026-06-03"
   }));
-  assert.equal(report.scope.cumulativeAvailable, false);
   assert.equal(report.scope.periodLabels.current, "本期");
-  assert.equal(report.metrics.overview.ac, null);
+  assert.equal(report.metrics.overview.ac, 1000);
+  assert.equal(report.scope.cumulativeAvailable, undefined);
+  assert.equal(report.scope.historyMode, undefined);
+  assert.equal(report.history, undefined);
   const acCard = report.cards.overview.find(function (item) { return item.id === "ac"; });
-  assert.equal(acCard.values[0].status, "unavailable");
+  assert.equal(acCard.values[0].status, "ready");
 });
 
 test("analytics engine keeps failed business sources unavailable instead of zero", function () {
@@ -192,7 +195,7 @@ test("analytics engine treats successful empty sources as known zero", function 
   assert.equal(report.metrics.invoice.overdueCount, 0);
 });
 
-test("analytics engine compares the adjacent previous snapshot", function () {
+test("analytics engine builds adjacent period comparison from the same live project set", function () {
   const report = createAnalyticsEngine().buildReport(fixture({
     previousReport: {
       identity: { startDate: "2026-06-29", endDate: "2026-07-05", capturedAt: "2026-07-06T00:00:00Z" },
@@ -203,20 +206,41 @@ test("analytics engine compares the adjacent previous snapshot", function () {
     }
   }));
 
-  assert.equal(report.history.previousAvailable, true);
-  assert.equal(report.history.previous.identity.endDate, "2026-07-05");
-  assert.equal(report.history.changes.overview.ac, 0.25);
-  assert.equal(report.history.changes.overview.revenue, 0.25);
-  assert.equal(report.history.changes.active.inputMd, 1);
+  assert.equal(report.metrics.overview.ac, 1000);
+  assert.equal(report.metrics.previous.active.inputMd, 1.5);
+  assert.deepEqual(report.metrics.comparison.active.inputMd, {
+    current: 2,
+    previous: 1.5,
+    delta: 0.5,
+    changeRate: 1 / 3
+  });
+  assert.deepEqual(report.metrics.comparison.active.periodPV, {
+    current: 300,
+    previous: 0,
+    delta: 300,
+    changeRate: 0
+  });
+  assert.equal(report.metrics.comparison.overview, undefined);
+  assert.equal(report.metrics.comparison.milestone.overdueCount.current, 1);
+  assert.equal(report.metrics.comparison.milestone.overdueCount.previous, 0);
+  assert.equal(report.metrics.comparison.invoice.overdueCount.current, 2);
+  assert.equal(report.metrics.comparison.invoice.overdueCount.previous, 1);
+  assert.equal(report.history, undefined);
 });
 
-test("analytics engine keeps interval-only historical reports non-persistable", function () {
+test("period comparison keeps a failed previous source unavailable without hiding current values", function () {
   const report = createAnalyticsEngine().buildReport(fixture({
-    historyMode: "interval",
-    cumulativeAvailable: false
+    previousDailyByProject: {},
+    sourceStatus: [{ source: "previousDaily", status: "failed" }]
   }));
 
-  assert.equal(report.scope.historyMode, "interval");
-  assert.equal(report.scope.persistable, false);
-  assert.equal(report.metrics.overview.ac, null);
+  assert.equal(report.metrics.active.inputMd, 2);
+  assert.equal(report.metrics.previous.active.inputMd, null);
+  assert.deepEqual(report.metrics.comparison.active.inputMd, {
+    current: 2,
+    previous: null,
+    delta: null,
+    changeRate: null
+  });
+  assert.equal(report.metrics.active.periodPV, 300);
 });

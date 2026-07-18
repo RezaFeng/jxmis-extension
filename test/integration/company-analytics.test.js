@@ -6,12 +6,13 @@ import { createBusinessAnalyticsController } from "../../src/content/business-an
 import { renderCompanyAnalyticsSection } from "../../src/content/business-analytics/report-view.js";
 import { MESSAGE_TYPES } from "../../src/shared/protocol.js";
 
-function project(id, revenue, bac, ac) {
+function project(id, revenue, bac, ac, departmentId) {
   return {
     projectId: id,
     projectNo: "JX-" + id,
     projectName: "项目" + id,
     projectManagerName: "经理" + id,
+    projectDept: departmentId || null,
     subcontractAmount: revenue,
     estiExeuCost: bac,
     realExeuCost: ac,
@@ -44,15 +45,17 @@ function input(departmentId, departmentName, projects) {
   };
 }
 
-test("company analytics deduplicates projects and recomputes raw ratios", function () {
-  const shared = project("SHARED", 200, 100, 50);
-  const snapshots = [
-    { complete: true, input: input("D1", "一部", [project("P1", 100, 50, 25), shared]) },
-    { complete: true, input: input("D2", "二部", [shared, project("P2", 300, 150, 75)]) }
-  ];
+test("company analytics deduplicates one live result and recomputes department ratios", function () {
+  const shared = project("SHARED", 200, 100, 50, "D1");
+  const liveInput = input("all", "全部部门", [
+    project("P1", 100, 50, 25, "D1"),
+    shared,
+    Object.assign({}, shared, { projectDept: "D2" }),
+    project("P2", 300, 150, 75, "D2")
+  ]);
 
   const report = createAnalyticsEngine().buildCompanyReport({
-    snapshots,
+    liveInput,
     departments: [
       { id: "D1", name: "一部", projectCount: 2 },
       { id: "D2", name: "二部", projectCount: 2 },
@@ -69,11 +72,37 @@ test("company analytics deduplicates projects and recomputes raw ratios", functi
   assert.equal(report.metrics.overview.bac, 300);
   assert.equal(report.metrics.overview.ac, 150);
   assert.equal(report.metrics.overview.cpi, 1);
-  assert.equal(report.company.coverage, 2 / 3);
-  assert.equal(report.company.complete, false);
-  assert.deepEqual(report.company.missingDepartmentIds, ["D3"]);
-  assert.equal(report.company.departments.find(function (item) { return item.departmentId === "D3"; }).status, "missing");
+  assert.equal(report.company.coverage, 1);
+  assert.equal(report.company.complete, true);
+  assert.deepEqual(report.company.missingDepartmentIds, []);
+  assert.equal(report.company.departments.find(function (item) {
+    return item.departmentId === "D1";
+  }).projectCount, 2);
+  assert.equal(report.company.departments.find(function (item) {
+    return item.departmentId === "D2";
+  }).projectCount, 1);
+  assert.equal(report.company.departments.find(function (item) {
+    return item.departmentId === "D3";
+  }).status, "ready");
   assert.equal(report.scope.persistable, false);
+});
+
+test("company analytics isolates a project failure to its live department", function () {
+  const liveInput = input("all", "全部部门", [
+    project("P1", 100, 50, 25, "D1"),
+    project("P2", 300, 150, 75, "D2")
+  ]);
+  liveInput.complete = false;
+  liveInput.failedRequests = [{ source: "wbs", projectId: "P2", error: "HTTP 500" }];
+  liveInput.sourceStatus = [{ source: "wbs", projectId: "P2", status: "failed" }];
+  const report = createAnalyticsEngine().buildCompanyReport({
+    liveInput,
+    departments: [{ id: "D1", name: "一部" }, { id: "D2", name: "二部" }]
+  });
+  assert.equal(report.company.coverage, 0.5);
+  assert.equal(report.company.departments[0].status, "ready");
+  assert.equal(report.company.departments[1].status, "failed");
+  assert.deepEqual(report.company.missingDepartmentIds, ["D2"]);
 });
 
 test("company analytics controller aggregates department snapshots without background collection", async function () {

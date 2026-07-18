@@ -1,10 +1,14 @@
 import { DEFAULT_RISK_THRESHOLDS } from "./config.js";
-import { addCalendarDays, getEndMonthRange, isNaturalWeek } from "./date-range.js";
+import {
+  addCalendarDays,
+  getEndMonthRange,
+  getPreviousDateRange,
+  isNaturalWeek
+} from "./date-range.js";
 import { AnalyticsSchemaError, normalizeDateRange } from "./domain.js";
 import {
   calculateCumulativeMetrics,
   calculateInputMetrics,
-  isActiveProject,
   safeRatio
 } from "./formulas.js";
 import { evaluateProjectRisks, summarizeRisks } from "./risks.js";
@@ -210,45 +214,55 @@ function createCards(metrics, periodLabel) {
   };
 }
 
-function aggregateActive(input, projectRows, range) {
+function projectInputMd(input, field, projectId) {
+  return rowsFor(input[field], projectId).reduce(function (sum, row) {
+    return sum + row.realHour;
+  }, 0) / 8;
+}
+
+function plannedHoursForPeriod(input, projectRows, field) {
+  if (field === "nextPlannedHoursByProject") {
+    return projectRows.reduce(function (sum, project) {
+      const value = input[field] && input[field][project.projectId];
+      return sum + (known(value) ? value : 0);
+    }, 0);
+  }
+  return projectRows.reduce(function (sum, project) {
+    const source = input[field] && input[field][project.projectId];
+    const rows = source && source.aggregate && source.aggregate.nextExecutions || [];
+    return sum + rows.reduce(function (rowSum, row) {
+      const value = Number(row.planHour ?? row.plannedHours ?? row.duration ?? 0);
+      return rowSum + (Number.isFinite(value) ? value : 0);
+    }, 0);
+  }, 0);
+}
+
+function aggregatePeriod(input, projectRows, range, options) {
   const activeRows = projectRows.filter(function (row) {
-    return isActiveProject(row.inputMd, row.previousInputMd);
+    return projectInputMd(input, options.dailyField, row.projectId) > 0;
   });
   const interval = calculateInputMetrics({
     startDate: range.startDate,
     endDate: range.endDate,
-    dailyRows: combineRows(activeRows, "dailyRows"),
-    previousDailyRows: combineRows(activeRows, "previousDailyRows"),
-    wbsRows: combineRows(activeRows, "wbsRows"),
-    projects: activeRows,
-    nextPeriodPlannedHours: sumKnown(activeRows, "nextPeriodPlannedMd") === null
-      ? null
-      : sumKnown(activeRows, "nextPeriodPlannedMd") * 8
+    dailyRows: projectRows.flatMap(function (row) {
+      return rowsFor(input[options.dailyField], row.projectId);
+    }),
+    previousDailyRows: [],
+    wbsRows: combineRows(projectRows, "wbsRows"),
+    projects: projectRows,
+    nextPeriodPlannedHours: plannedHoursForPeriod(input, projectRows, options.weeklyField)
   });
-  const risks = summarizeRisks(activeRows);
   const projectIds = projectRows.map(function (row) { return row.projectId; });
-  const activeSetAvailable = !sourceFailed(input, "daily", projectIds) &&
-    !sourceFailed(input, "previousDaily", projectIds);
-  const wbsAvailable = activeSetAvailable && !sourceFailed(
-    input,
-    "wbs",
-    activeRows.map(function (row) { return row.projectId; })
-  );
-  const weeklyAvailable = activeSetAvailable && !sourceFailed(
-    input,
-    "weeklyReports",
-    activeRows.map(function (row) { return row.projectId; })
-  );
+  const inputAvailable = !sourceFailed(input, options.dailySource, projectIds);
+  const wbsAvailable = !sourceFailed(input, "wbs", projectIds);
+  const weeklyAvailable = !sourceFailed(input, "weeklyReports", projectIds);
   const result = Object.assign({ projectCount: activeRows.length, projects: activeRows }, interval, {
-    riskItemCount: risks.itemCount
+    riskItemCount: options.includeRisks ? summarizeRisks(activeRows).itemCount : 0
   });
-  if (!activeSetAvailable) {
-    ["projectCount", "inputHours", "inputMd", "inputCost", "previousInputMd", "previousInputCost",
-      "inputDelta", "costDelta", "monthPV", "monthEV", "monthSPI", "periodPV", "periodEV",
-      "periodSPI", "cumulativePV", "cumulativeEV", "totalSPI", "serviceEV", "periodCPI",
-      "periodCCPI", "periodPerCapita", "nextPeriodPlannedMd", "burnRatePerDay", "riskItemCount"]
+  if (!inputAvailable) {
+    ["projectCount", "inputHours", "inputMd", "inputCost", "inputDelta", "costDelta",
+      "periodCPI", "periodCCPI", "periodPerCapita", "burnRatePerDay", "riskItemCount"]
       .forEach(function (field) { result[field] = null; });
-    return result;
   }
   if (!wbsAvailable) {
     ["monthPV", "monthEV", "monthSPI", "periodPV", "periodEV", "periodSPI", "cumulativePV",
@@ -275,34 +289,51 @@ function countCardValues(cards) {
   }, 0);
 }
 
-function createHistory(input, metrics) {
-  const previous = input.previousReport;
-  if (!previous || !previous.metrics) {
-    return { previousAvailable: false, previous: null, changes: {} };
+function compareValue(current, previous) {
+  if (!known(current) || !known(previous)) {
+    return { current, previous, delta: null, changeRate: null };
   }
-  const changes = {};
-  ["overview", "active", "milestone", "invoice", "risks"].forEach(function (section) {
-    const currentValues = metrics[section] || {};
-    const previousValues = previous.metrics[section] || {};
-    const sectionChanges = {};
-    new Set([...Object.keys(currentValues), ...Object.keys(previousValues)]).forEach(function (field) {
-      const current = currentValues[field];
-      const prior = previousValues[field];
-      if ((known(current) || current === null) && (known(prior) || prior === null)) {
-        sectionChanges[field] = safeRatio(known(current) && known(prior) ? current - prior : null, prior);
-      }
-    });
-    changes[section] = sectionChanges;
-  });
-  return {
-    previousAvailable: true,
-    previous: {
-      identity: previous.identity || null,
-      metrics: previous.metrics
-    },
-    changes
-  };
+  const delta = current - previous;
+  return { current, previous, delta, changeRate: safeRatio(delta, previous) };
 }
+
+function compareSections(current, previous, fields) {
+  return Object.fromEntries(fields.map(function (field) {
+    return [field, compareValue(current[field], previous[field])];
+  }));
+}
+
+const ACTIVE_COMPARISON_FIELDS = Object.freeze([
+  "projectCount",
+  "inputMd",
+  "inputCost",
+  "monthPV",
+  "monthEV",
+  "monthSPI",
+  "periodPV",
+  "periodEV",
+  "periodSPI",
+  "serviceEV",
+  "periodCPI",
+  "periodCCPI",
+  "periodPerCapita",
+  "nextPeriodPlannedMd"
+]);
+
+const MILESTONE_COMPARISON_FIELDS = Object.freeze([
+  "plannedCount",
+  "completedCount",
+  "completionRate",
+  "overdueCount",
+  "upcomingCount"
+]);
+
+const INVOICE_COMPARISON_FIELDS = Object.freeze([
+  "monthPlan",
+  "received",
+  "pending",
+  "overdueCount"
+]);
 
 function buildPmRows(projectRows) {
   const groups = new Map();
@@ -438,29 +469,22 @@ export function createAnalyticsEngine() {
       riskThresholds: DEFAULT_RISK_THRESHOLDS
     }, input), sourceProjects, range);
     projectRows = attachSourceRows(input, projectRows);
-    const cumulativeAvailable = input.cumulativeAvailable !== false;
-    const overview = cumulativeAvailable
-      ? calculateCumulativeMetrics(sourceProjects)
-      : {
-          projectCount: sourceProjects.length,
-          revenue: null,
-          bac: null,
-          ac: null,
-          cr: null,
-          ev: null,
-          personYears: null,
-          progress: null,
-          cpi: null,
-          ccpi: null,
-          eac: null,
-          perCapita: null,
-          remainingBudget: null,
-          budgetExecutionRate: null,
-          projects: projectRows
-        };
+    const overview = calculateCumulativeMetrics(sourceProjects);
     const riskSummary = summarizeRisks(projectRows);
     const selectedProjectIds = sourceProjects.map(function (project) { return project.projectId; });
-    const active = aggregateActive(input, projectRows, range);
+    const previousRange = getPreviousDateRange(range);
+    const active = aggregatePeriod(input, projectRows, range, {
+      dailyField: "dailyByProject",
+      dailySource: "daily",
+      weeklyField: "nextPlannedHoursByProject",
+      includeRisks: true
+    });
+    const previousActive = aggregatePeriod(input, projectRows, previousRange, {
+      dailyField: "previousDailyByProject",
+      dailySource: "previousDaily",
+      weeklyField: "previousWeeklyByProject",
+      includeRisks: false
+    });
     const allMilestones = sourceProjects.flatMap(function (project) {
       return sourceRowsFor(input, "milestonesByProject", project);
     });
@@ -472,21 +496,54 @@ export function createAnalyticsEngine() {
       range,
       !sourceFailed(input, "milestones", selectedProjectIds)
     );
+    const previousMilestoneSummary = summarizeMilestones(
+      allMilestones,
+      previousRange,
+      !sourceFailed(input, "milestones", selectedProjectIds)
+    );
+    const currentMonth = getEndMonthRange(range);
+    const previousMonth = getEndMonthRange(previousRange);
+    const previousInvoiceSource = currentMonth.startDate === previousMonth.startDate
+      ? "monthlyInvoices"
+      : "previousMonthlyInvoices";
     const invoiceSummary = summarizeInvoices(
       allInvoices,
       range,
       !sourceFailed(input, "invoices", selectedProjectIds) &&
         !sourceFailed(input, "monthlyInvoices", selectedProjectIds)
     );
+    const previousInvoiceSummary = summarizeInvoices(
+      allInvoices,
+      previousRange,
+      !sourceFailed(input, "invoices", selectedProjectIds) &&
+        !sourceFailed(input, previousInvoiceSource, selectedProjectIds)
+    );
     const labels = isNaturalWeek(range)
       ? { current: "本周", previous: "上周", next: "下周" }
       : { current: "本期", previous: "上期", next: "下期" };
+    const comparison = {
+      active: compareSections(active, previousActive, ACTIVE_COMPARISON_FIELDS),
+      milestone: compareSections(
+        milestoneSummary,
+        previousMilestoneSummary,
+        MILESTONE_COMPARISON_FIELDS
+      ),
+      invoice: compareSections(invoiceSummary, previousInvoiceSummary, INVOICE_COMPARISON_FIELDS)
+    };
+    active.inputDelta = comparison.active.inputMd.changeRate;
+    active.costDelta = comparison.active.inputCost.changeRate;
     const metrics = {
       overview,
       active,
       milestone: milestoneSummary,
       invoice: invoiceSummary,
-      risks: riskSummary
+      risks: riskSummary,
+      previous: {
+        active: previousActive,
+        milestone: previousMilestoneSummary,
+        invoice: previousInvoiceSummary
+      },
+      comparison
     };
     const cards = createCards(metrics, labels);
     if (countCardValues(cards) !== 35) {
@@ -506,15 +563,18 @@ export function createAnalyticsEngine() {
         mode: selectedIds ? "selection" : "formal",
         selectedCount: sourceProjects.length,
         totalCount: allProjects.length,
-        persistable: !selectedIds && input.complete === true && input.historyMode !== "interval",
-        cumulativeAvailable,
-        historyMode: input.historyMode || "current",
+        formalCount: input.formalScope && input.formalScope.formalProjectCount !== undefined
+          ? input.formalScope.formalProjectCount
+          : allProjects.length,
+        candidateCount: input.formalScope && input.formalScope.candidateProjectCount !== undefined
+          ? input.formalScope.candidateProjectCount
+          : allProjects.length,
+        persistable: !selectedIds && input.complete === true,
         periodLabels: labels
       },
       complete: input.complete === true,
       cards,
       metrics,
-      history: createHistory(input, metrics),
       tables: {
         projects: projectRows,
         activeProjects: active.projects,
@@ -535,6 +595,58 @@ export function createAnalyticsEngine() {
   function buildCompanyReport(input) {
     if (!input || typeof input !== "object") {
       throw new AnalyticsSchemaError("company", "must be an object", input);
+    }
+    const live = input.liveInput || (Array.isArray(input.projects) ? input : null);
+    if (live) {
+      const seen = new Set();
+      const projects = (live.projects || []).filter(function (project) {
+        const projectId = String(project.projectId);
+        if (seen.has(projectId)) return false;
+        seen.add(projectId);
+        return true;
+      });
+      const liveInput = Object.assign({}, live, {
+        departmentId: "all",
+        departmentName: "全部部门",
+        projects
+      });
+      const departments = input.departments || live.scope && live.scope.departments || [];
+      const report = buildReport(liveInput);
+      const departmentRows = departments.map(function (department) {
+        const departmentId = String(department.id);
+        const projectIds = projects.filter(function (project) {
+          return String(project.projectDept) === departmentId;
+        }).map(function (project) { return String(project.projectId); });
+        const failed = (live.failedRequests || []).some(function (descriptor) {
+          return descriptor.projectId === undefined || descriptor.projectId === null ||
+            projectIds.includes(String(descriptor.projectId));
+        });
+        const departmentReport = buildReport(Object.assign({}, liveInput, {
+          departmentId,
+          departmentName: department.name,
+          selectedProjectIds: projectIds,
+          complete: !failed
+        }));
+        return {
+          departmentId,
+          departmentName: department.name,
+          projectCount: departmentReport.metrics.overview.projectCount,
+          status: failed ? "failed" : "ready",
+          complete: !failed,
+          capturedAt: live.capturedAt || null,
+          metrics: departmentReport.metrics
+        };
+      });
+      const completedDepartments = departmentRows.filter(function (item) { return item.complete; }).length;
+      report.scope.persistable = false;
+      report.company = {
+        complete: live.complete === true && completedDepartments === departments.length,
+        coverage: departments.length > 0 ? completedDepartments / departments.length : 1,
+        departments: departmentRows,
+        missingDepartmentIds: departmentRows.filter(function (item) { return !item.complete; })
+          .map(function (item) { return item.departmentId; })
+      };
+      return report;
     }
     const range = normalizeDateRange(input);
     const departments = input.departments || [];
