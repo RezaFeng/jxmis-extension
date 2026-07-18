@@ -13,13 +13,30 @@ function report() {
       endDate: "2026-07-12",
       capturedAt: "2026-07-13T08:00:00Z"
     },
-    scope: { mode: "formal", persistable: true, periodLabels: { current: "本周" } },
+    scope: {
+      mode: "formal",
+      formalCount: 1,
+      candidateCount: 2,
+      onlyCurrentPeriodInput: true,
+      periodLabels: { current: "本周", previous: "上周" }
+    },
     complete: true,
     cards: {
       overview: [{ id: "projectCount", label: "项目数", values: [{ value: 1, format: "number" }] }],
       active: [], milestone: [], invoice: []
     },
-    metrics: {},
+    metrics: {
+      risks: { attentionProjectCount: 1, itemCount: 2 },
+      milestone: { overdueCount: 0 },
+      invoice: { overdueCount: 0 },
+      comparison: {
+        active: {
+          inputMd: { current: 1, previous: 0, delta: 1, changeRate: 0 }
+        },
+        milestone: {},
+        invoice: {}
+      }
+    },
     tables: {
       projects: [{
         projectId: "P1",
@@ -41,7 +58,15 @@ function report() {
       diagnostics: {
         coverage: 0.8,
         failedRequests: [{ source: "wbs", error: "private endpoint" }],
-        sourceStatus: [{ source: "wbs", projectId: "P1", status: "failed", error: "private endpoint" }]
+        sourceStatus: [{ source: "wbs", projectId: "P1", status: "failed", error: "private endpoint" }],
+        enteredProjectIds: ["P1"],
+        rangeChangeProjects: [{
+          projectId: "P1",
+          projectNo: "JX-1",
+          projectName: "项目一",
+          currentInputMd: 1,
+          previousInputMd: 0
+        }]
       }
     }
   };
@@ -57,9 +82,24 @@ test("analytics html export is self-contained and strips sensitive detail", func
   assert.match(html, /data-action="restore"/);
   assert.match(html, /data-sort/);
   assert.match(html, /Content-Security-Policy/);
+  assert.match(html, /正式范围 1\/2/);
+  assert.match(html, /仅本期日报投入项目/);
+  assert.match(html, /本期经营与上期比较/);
+  assert.match(html, /投入范围变化/);
+  assert.match(html, /本期进入/);
+  assert.ok(html.indexOf("经营速览") < html.indexOf("实时累计经营概览"));
+  assert.ok(html.indexOf("实时累计经营概览") < html.indexOf("本期经营与上期比较"));
+  assert.ok(html.indexOf("本期经营与上期比较") < html.indexOf("项目明细"));
+  assert.doesNotMatch(html, /历史快照|无法历史回溯|缓存时间|区间执行报告/);
   assert.doesNotMatch(html, /敏感人员|secret-cookie|secret-key|private endpoint|JSESSIONID/i);
   assert.doesNotMatch(html, /https?:\/\//i);
   assert.doesNotMatch(html, /\bfetch\s*\(|XMLHttpRequest|src\s*=\s*["']https?:/i);
+});
+
+test("analytics html export rejects a temporary project selection", function () {
+  const selected = report();
+  selected.scope.mode = "selection";
+  assert.throws(function () { createOfflineReport(selected); }, /formal analytics report required/);
 });
 
 test("analytics html export creates a stable report filename", function () {
