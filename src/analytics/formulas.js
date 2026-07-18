@@ -14,9 +14,8 @@ function sumField(rows, field) {
 }
 
 export function safeRatio(numerator, denominator) {
-  return isKnown(numerator) && isKnown(denominator) && denominator > 0
-    ? numerator / denominator
-    : null;
+  if (!isKnown(numerator) || !isKnown(denominator)) return null;
+  return denominator === 0 ? 0 : numerator / denominator;
 }
 
 export function calculateProjectMetrics(project) {
@@ -42,7 +41,7 @@ export function calculateProjectMetrics(project) {
     ev,
     cpi,
     ccpi: safeRatio(cr, ac),
-    eac: cpi !== null && cpi > 0 ? bac / cpi : null,
+    eac: safeRatio(bac, cpi),
     perCapita: safeRatio(cr, personYears),
     remainingBudget: isKnown(bac) && isKnown(ac) ? Math.max(bac - ac, 0) : null,
     budgetExecutionRate: safeRatio(ac, bac)
@@ -69,7 +68,7 @@ export function calculateCumulativeMetrics(projects) {
     progress: safeRatio(ev, bac),
     cpi,
     ccpi: safeRatio(cr, ac),
-    eac: cpi !== null && cpi > 0 ? bac / cpi : null,
+    eac: safeRatio(bac, cpi),
     perCapita: safeRatio(cr, personYears),
     remainingBudget: isKnown(bac) && isKnown(ac) ? Math.max(bac - ac, 0) : null,
     budgetExecutionRate: safeRatio(ac, bac),
@@ -87,16 +86,16 @@ export function calculateWbsMetrics(wbsRows, range) {
   const applicable = wbsRows.filter(function (row) { return isKnown(row.costLevel); });
   if (applicable.length === 0) {
     return {
-      applicable: false,
-      monthPV: null,
-      monthEV: null,
-      monthSPI: null,
-      periodPV: null,
-      periodEV: null,
-      periodSPI: null,
-      cumulativePV: null,
-      cumulativeEV: null,
-      totalSPI: null
+      applicable: true,
+      monthPV: 0,
+      monthEV: 0,
+      monthSPI: 0,
+      periodPV: 0,
+      periodEV: 0,
+      periodSPI: 0,
+      cumulativePV: 0,
+      cumulativeEV: 0,
+      totalSPI: 0
     };
   }
   function total(predicate) {

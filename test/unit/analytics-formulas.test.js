@@ -94,7 +94,7 @@ test("analytics formulas aggregate raw values before calculating ratios", functi
   assert.equal(metrics.perCapita, 1500);
 });
 
-test("analytics formulas keep unknown and zero denominators distinct", function () {
+test("analytics formulas keep unknown inputs and turn zero denominators into zero", function () {
   const unknown = calculateCumulativeMetrics([{
     subcontractAmount: 100,
     estiExeuCost: 100,
@@ -104,14 +104,32 @@ test("analytics formulas keep unknown and zero denominators distinct", function 
   }]);
   assert.equal(unknown.ac, null);
   assert.equal(unknown.cpi, null);
-  assert.equal(unknown.perCapita, null);
+  assert.equal(unknown.perCapita, 0);
   assert.equal(calculateProjectMetrics({
     subcontractAmount: 100,
     estiExeuCost: 100,
     realExeuCost: 0,
     realWorkload: 0,
     planCompleteSchedule: 0
-  }).eac, null);
+  }).eac, 0);
+});
+
+test("analytics formulas return known zero metrics for an empty WBS result", function () {
+  assert.deepEqual(calculateWbsMetrics([], {
+    startDate: "2026-07-06",
+    endDate: "2026-07-12"
+  }), {
+    applicable: true,
+    monthPV: 0,
+    monthEV: 0,
+    monthSPI: 0,
+    periodPV: 0,
+    periodEV: 0,
+    periodSPI: 0,
+    cumulativePV: 0,
+    cumulativeEV: 0,
+    totalSPI: 0
+  });
 });
 
 test("analytics formulas enforce WBS historical cutoff", function () {

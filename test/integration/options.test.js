@@ -15,7 +15,8 @@ test("options preserves AI settings and versions analytics settings", function (
       attribute: null,
       classification: ["Z", "J"],
       currStatus: ["20"],
-      outsourcing: null
+      outsourcing: null,
+      onlyCurrentPeriodInput: false
     },
     analyticsRiskThresholds: {
       lowPerCapita: 300000,
@@ -32,6 +33,7 @@ test("options preserves AI settings and versions analytics settings", function (
   assert.equal(result.apiKey, "secret");
   assert.equal(result.projectManager, "PM-1");
   assert.deepEqual(result.analyticsProjectFilters.classification, ["J", "Z"]);
+  assert.equal(result.analyticsProjectFilters.onlyCurrentPeriodInput, false);
   assert.match(result.analyticsConfigVersion, /^v1-/);
   assert.match(result.analyticsPolicyVersion, /^v1-/);
 });

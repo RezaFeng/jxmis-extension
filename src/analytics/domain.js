@@ -72,6 +72,9 @@ export function normalizeIdentifier(value, field, options = {}) {
 
 export function normalizeFiniteNumber(value, field, options = {}) {
   if (isBlank(value)) {
+    if (options.blankAsZero) {
+      return 0;
+    }
     if (options.required) {
       throw new AnalyticsSchemaError(field, "is required", value);
     }
@@ -138,7 +141,7 @@ export function normalizeProject(raw) {
     isCreateWkReport: normalizeIdentifier(raw.isCreateWkReport, "isCreateWkReport")
   };
   PROJECT_NUMBER_FIELDS.forEach(function (field) {
-    project[field] = normalizeFiniteNumber(raw[field], field);
+    project[field] = normalizeFiniteNumber(raw[field], field, { blankAsZero: true });
   });
   return project;
 }

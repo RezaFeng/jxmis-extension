@@ -31,19 +31,17 @@ export function normalizeDailyRow(raw) {
       "daily.taskDate",
       { required: true }
     ),
-    realHour: normalizeFiniteNumber(raw.realHour, "daily.realHour", { required: true }),
-    cost: normalizeFiniteNumber(raw.cost, "daily.cost", { required: true })
+    realHour: normalizeFiniteNumber(raw.realHour, "daily.realHour", { blankAsZero: true }),
+    cost: normalizeFiniteNumber(raw.cost, "daily.cost", { blankAsZero: true })
   };
 }
 
 export function normalizeWbsRows(rows) {
-  return (rows || []).filter(function (raw) {
-    return raw && raw.costLevel !== null && raw.costLevel !== undefined && raw.costLevel !== "";
-  }).map(function (raw) {
+  return (rows || []).filter(Boolean).map(function (raw) {
     return {
       detailId: normalizeIdentifier(raw.detailId ?? raw.id, "wbs.detailId"),
       detailName: normalizeIdentifier(raw.detailName ?? raw.taskName, "wbs.detailName"),
-      costLevel: normalizeFiniteNumber(raw.costLevel, "wbs.costLevel", { required: true }),
+      costLevel: normalizeFiniteNumber(raw.costLevel, "wbs.costLevel", { blankAsZero: true }),
       planEndTime: normalizeApiDate(raw.planEndTime, "wbs.planEndTime", { required: true }),
       actualEndTime: normalizeApiDate(raw.actualEndTime ?? raw.realEndTime, "wbs.actualEndTime")
     };

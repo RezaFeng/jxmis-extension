@@ -21,11 +21,11 @@ export function normalizeInvoiceRows(rows, projectId) {
     const planAmount = normalizeFiniteNumber(
       raw.invoiceAmount ?? raw.planAmount ?? raw.estimateReceivedAmount,
       "invoice.planAmount",
-      { required: true }
+      { blankAsZero: true }
     );
     const receivedFlag = String(raw.recFlag ?? raw.receivedFlag ?? "") === "1";
     const receivedAmount = receivedFlag
-      ? normalizeFiniteNumber(raw.recAmount ?? raw.receivedAmount, "invoice.receivedAmount", { required: true })
+      ? normalizeFiniteNumber(raw.recAmount ?? raw.receivedAmount, "invoice.receivedAmount", { blankAsZero: true })
       : 0;
     return {
       invoiceId: normalizeIdentifier(raw.invoiceId ?? raw.planId ?? raw.id, "invoice.id"),
@@ -60,7 +60,7 @@ export function associateMonthlyInvoiceRows(rows, projects) {
     const planAmount = normalizeFiniteNumber(
       raw.planAmount ?? raw.estimateReceivedAmount ?? raw.invoiceAmount,
       "invoiceSupplement.planAmount",
-      { required: true }
+      { blankAsZero: true }
     );
     const matches = projectsByContract.get(contractNo) || [];
     if (matches.length !== 1) {
@@ -71,7 +71,7 @@ export function associateMonthlyInvoiceRows(rows, projects) {
     }
     const receivedFlag = String(raw.recFlag ?? raw.receivedFlag ?? "") === "1";
     const receivedAmount = receivedFlag
-      ? normalizeFiniteNumber(raw.recAmount ?? raw.receivedAmount, "invoiceSupplement.receivedAmount", { required: true })
+      ? normalizeFiniteNumber(raw.recAmount ?? raw.receivedAmount, "invoiceSupplement.receivedAmount", { blankAsZero: true })
       : 0;
     mapped.push({
       invoiceId: normalizeIdentifier(raw.invoiceId ?? raw.planId ?? raw.id, "invoiceSupplement.id"),

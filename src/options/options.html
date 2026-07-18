@@ -23,6 +23,7 @@
       </section>
       <section>
         <div class="section-title"><h2>经营分析口径</h2><button id="restoreAnalytics" type="button">恢复默认</button></div>
+        <label class="check"><input id="onlyCurrentPeriodInput" type="checkbox"><span>仅统计本期有日报投入的项目</span></label>
         <div id="projectFilters" class="filter-grid"></div>
       </section>
       <section>
@@ -36,10 +37,6 @@
           <label><span>高投入零产出人天</span><input data-threshold="highInputZeroOutputMd" type="number" min="0" step="0.1"></label>
           <label><span>严重超支比例</span><input data-threshold="severeOverrunRatio" type="number" min="1" step="0.01"></label>
         </div>
-      </section>
-      <section>
-        <h2>本地数据</h2>
-        <div class="inline"><button id="clearAnalyticsCache" type="button">清理原始缓存</button><button id="clearAnalyticsHistory" type="button">清理全部历史</button></div>
       </section>
       <div id="status" class="status" role="status"></div>
     </main>

@@ -11,7 +11,8 @@ export const DEFAULT_PROJECT_FILTERS = Object.freeze({
   attribute: null,
   classification: Object.freeze(["J", "Z"]),
   currStatus: Object.freeze(["10", "20", "50"]),
-  outsourcing: null
+  outsourcing: null,
+  onlyCurrentPeriodInput: true
 });
 
 export const DEFAULT_RISK_THRESHOLDS = Object.freeze({
@@ -25,9 +26,11 @@ export const DEFAULT_RISK_THRESHOLDS = Object.freeze({
 });
 
 function cloneFilters(filters) {
-  return Object.fromEntries(FILTER_FIELDS.map(function (field) {
+  const cloned = Object.fromEntries(FILTER_FIELDS.map(function (field) {
     return [field, filters[field] === null ? null : [...filters[field]]];
   }));
+  cloned.onlyCurrentPeriodInput = filters.onlyCurrentPeriodInput;
+  return cloned;
 }
 
 function canonicalize(value) {
@@ -79,6 +82,17 @@ export function validateProjectFilters(input) {
     });
     result[field] = unique.sort();
   });
+  const onlyCurrentPeriodInput = source.onlyCurrentPeriodInput === undefined
+    ? DEFAULT_PROJECT_FILTERS.onlyCurrentPeriodInput
+    : source.onlyCurrentPeriodInput;
+  if (typeof onlyCurrentPeriodInput !== "boolean") {
+    throw new AnalyticsSchemaError(
+      "onlyCurrentPeriodInput",
+      "must be a boolean",
+      onlyCurrentPeriodInput
+    );
+  }
+  result.onlyCurrentPeriodInput = onlyCurrentPeriodInput;
   return result;
 }
 

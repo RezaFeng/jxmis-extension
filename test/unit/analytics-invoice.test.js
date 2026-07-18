@@ -36,8 +36,11 @@ test("analytics invoice associates monthly rows only by unique normalized contra
   });
 });
 
-test("analytics invoice rejects received rows without a received amount", function () {
-  assert.throws(function () {
-    normalizeInvoiceRows([{ invoiceAmount: 100, recFlag: "1", estimateReceivedDate: "2026-07-01" }], "P1");
-  }, /receivedAmount: is required/);
+test("analytics invoice treats blank business amounts as zero", function () {
+  const rows = normalizeInvoiceRows([
+    { invoiceAmount: null, recFlag: "1", recAmount: "", estimateReceivedDate: "2026-07-01" }
+  ], "P1");
+  assert.equal(rows[0].planAmount, 0);
+  assert.equal(rows[0].receivedAmount, 0);
+  assert.equal(rows[0].pendingAmount, 0);
 });

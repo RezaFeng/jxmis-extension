@@ -16,6 +16,10 @@ import {
   normalizeCalendarDate,
   normalizeProject
 } from "../../src/analytics/domain.js";
+import {
+  normalizeDailyRow,
+  normalizeWbsRows
+} from "../../src/page/business-analytics/normalizers.js";
 
 test("analytics config applies business defaults", function () {
   const config = createAnalyticsConfig();
@@ -23,7 +27,8 @@ test("analytics config applies business defaults", function () {
     attribute: null,
     classification: ["J", "Z"],
     currStatus: ["10", "20", "50"],
-    outsourcing: null
+    outsourcing: null,
+    onlyCurrentPeriodInput: true
   });
   assert.deepEqual(config.riskThresholds, DEFAULT_RISK_THRESHOLDS);
   assert.match(config.configVersion, /^v1-[0-9a-f]{16}$/);
@@ -51,6 +56,10 @@ test("analytics config treats unrestricted dimensions and unknown project values
   assert.throws(
     function () { validateProjectFilters({ classification: [] }); },
     /non-empty array/
+  );
+  assert.throws(
+    function () { validateProjectFilters({ onlyCurrentPeriodInput: "true" }); },
+    /must be a boolean/
   );
 });
 
@@ -80,7 +89,14 @@ test("analytics config versions are stable across object and selection order", f
   const configB = createAnalyticsConfig({
     projectFilters: { classification: ["J", "Z"] }
   });
+  const configC = createAnalyticsConfig({
+    projectFilters: {
+      classification: ["J", "Z"],
+      onlyCurrentPeriodInput: false
+    }
+  });
   assert.equal(configA.configVersion, configB.configVersion);
+  assert.notEqual(configA.configVersion, configC.configVersion);
 });
 
 test("analytics config migrates legacy storage without losing AI settings", function () {
@@ -101,7 +117,8 @@ test("analytics config migrates legacy storage without losing AI settings", func
     attribute: null,
     classification: ["J", "Z"],
     currStatus: ["10", "20", "50"],
-    outsourcing: null
+    outsourcing: null,
+    onlyCurrentPeriodInput: true
   });
   assert.equal(typeof migrated.analyticsConfigVersion, "string");
   assert.equal(typeof migrated.analyticsPolicyVersion, "string");
@@ -132,11 +149,30 @@ test("analytics config normalizes project values without discarding future enums
   assert.equal(project.projectDept, "100");
   assert.equal(project.classification, "FUTURE");
   assert.equal(project.subcontractAmount, 1234.5);
-  assert.equal(project.realWorkload, null);
+  assert.equal(project.realWorkload, 0);
   assert.throws(
     function () { normalizeProject({ projectId: 1, projectName: "A", projectDept: 2, realExeuCost: "?" }); },
     /finite number/
   );
   assert.equal(normalizeCalendarDate("2024-02-29"), "2024-02-29");
   assert.throws(function () { normalizeCalendarDate("2023-02-29"); }, /valid calendar date/);
+});
+
+test("analytics config normalizes successful blank business values as zero", function () {
+  const daily = normalizeDailyRow({
+    projectId: "P1",
+    taskDate: "2026-07-01",
+    realHour: null,
+    cost: ""
+  });
+  assert.equal(daily.realHour, 0);
+  assert.equal(daily.cost, 0);
+
+  const wbs = normalizeWbsRows([{
+    id: "W1",
+    costLevel: undefined,
+    planEndTime: "2026-07-02"
+  }]);
+  assert.equal(wbs.length, 1);
+  assert.equal(wbs[0].costLevel, 0);
 });
