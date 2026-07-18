@@ -345,7 +345,10 @@ export function createBusinessAnalyticsController(adapters) {
   function ensureNavigation() {
     return navigation.ensure(function () { open().catch(function (error) {
       view.renderState({ kind: "error", message: error.message || String(error) });
-    }); });
+    }); }, function () {
+      cancel();
+      navigation.restore();
+    });
   }
 
   function syncLocation() {

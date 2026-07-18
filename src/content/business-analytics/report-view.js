@@ -464,7 +464,6 @@ export function createBusinessAnalyticsReportView(adapters) {
     root.className = "analytics-app";
     root.innerHTML = `
       <header class="report-toolbar">
-        <button type="button" class="icon-button" data-action="close" title="返回项目页面" aria-label="返回项目页面">←</button>
         <div class="report-title"><strong>经营分析</strong><span data-role="period-label">部门经营报告</span></div>
         <label><span>部门</span><select data-field="department"><option value="">加载中...</option></select></label>
         <label><span>开始日期</span><input data-field="startDate" type="date"></label>
@@ -519,6 +518,7 @@ export function createBusinessAnalyticsReportView(adapters) {
     (departments || []).forEach(function (department) {
       const option = document.createElement("option");
       option.value = department.id;
+      option.dataset.departmentName = department.name;
       option.textContent = department.name + "（" + department.projectCount + "）";
       elements.department.appendChild(option);
     });
@@ -538,9 +538,10 @@ export function createBusinessAnalyticsReportView(adapters) {
   }
 
   function getQuery() {
+    const selectedDepartment = elements.department.selectedOptions[0];
     return {
       departmentId: elements.department.value,
-      departmentName: elements.department.selectedOptions[0]?.textContent || "",
+      departmentName: selectedDepartment?.dataset.departmentName || selectedDepartment?.textContent || "",
       startDate: elements.startDate.value,
       endDate: elements.endDate.value
     };
