@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createOfflineReport, createOfflineReportFileName } from "../../src/analytics/html-export.js";
 import { createBusinessAnalyticsController } from "../../src/content/business-analytics/controller.js";
-import { MESSAGE_TYPES } from "../../src/shared/protocol.js";
+import { MESSAGE_TYPES, SOURCES } from "../../src/shared/protocol.js";
 
 function report() {
   return {
@@ -73,8 +73,14 @@ test("analytics html export controller downloads the formal report", async funct
   const downloads = [];
   const enabled = [];
   const cached = report();
+  const pageMessages = [];
+  let messageListener;
+  const windowRef = {
+    addEventListener: function (_type, listener) { messageListener = listener; },
+    postMessage: function (message) { pageMessages.push(message); }
+  };
   const controller = createBusinessAnalyticsController({
-    window: { addEventListener: function () {}, postMessage: function () {} },
+    window: windowRef,
     document: {},
     config: { projectFilters: {}, riskThresholds: {}, configVersion: "C1", policyVersion: "P1" },
     navigation: { restore: function () {}, isActive: function () { return false; }, syncLocation: function () {} },
@@ -86,24 +92,27 @@ test("analytics html export controller downloads the formal report", async funct
     },
     download: function (value) { downloads.push(value); },
     now: function () { return new Date("2026-07-13T08:09:10Z"); },
+    engine: { buildReport: function () { return cached; } },
     chrome: {
       runtime: {
         getURL: function () { return "business-analytics.css"; },
-        openOptionsPage: function () {},
-        sendMessage: function (message, callback) {
-          callback({
-            ok: true,
-            result: message.type === MESSAGE_TYPES.ANALYTICS_GET_LATEST
-              ? { capturedAt: cached.identity.capturedAt, report: cached }
-              : null
-          });
-        }
+        openOptionsPage: function () {}
       },
       storage: { local: { get: function (_defaults, callback) { callback({}); } } }
     }
   });
 
-  await controller.query(false);
+  await controller.query();
+  const request = pageMessages.at(-1);
+  messageListener({
+    source: windowRef,
+    data: {
+      source: SOURCES.ANALYTICS_PAGE,
+      type: MESSAGE_TYPES.ANALYTICS_RESULT,
+      requestId: request.requestId,
+      result: { projects: [{}], complete: true, failedRequests: [] }
+    }
+  });
   controller.handleAction("export");
 
   assert.equal(enabled.at(-1), true);

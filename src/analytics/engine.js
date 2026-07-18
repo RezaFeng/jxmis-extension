@@ -408,52 +408,6 @@ function buildWeeklyExecution(input, projectRows) {
   });
 }
 
-function latestCapturedAt(inputs) {
-  return inputs.map(function (input) { return input.capturedAt; }).filter(Boolean).sort().at(-1) || null;
-}
-
-function mergeCompanyInputs(inputs, base) {
-  const projects = [];
-  const seen = new Set();
-  const merged = Object.assign({}, base, {
-    departmentId: "all",
-    departmentName: "全部部门",
-    capturedAt: latestCapturedAt(inputs),
-    projects,
-    dailyByProject: {},
-    previousDailyByProject: {},
-    wbsByProject: {},
-    milestonesByProject: {},
-    invoicesByProject: {},
-    weeklyByProject: {},
-    nextPlannedHoursByProject: {},
-    sourceStatus: [],
-    failedRequests: [],
-    diagnostics: { company: true }
-  });
-  inputs.forEach(function (input) {
-    (input.projects || []).forEach(function (project) {
-      const id = String(project.projectId);
-      if (seen.has(id)) return;
-      seen.add(id);
-      projects.push(project);
-      ["dailyByProject", "previousDailyByProject", "wbsByProject", "milestonesByProject", "invoicesByProject"]
-        .forEach(function (field) { merged[field][id] = rowsFor(input[field], project.projectId); });
-      if (input.weeklyByProject && input.weeklyByProject[project.projectId]) {
-        merged.weeklyByProject[id] = input.weeklyByProject[project.projectId];
-      }
-      if (input.nextPlannedHoursByProject && known(input.nextPlannedHoursByProject[project.projectId])) {
-        merged.nextPlannedHoursByProject[id] = input.nextPlannedHoursByProject[project.projectId];
-      }
-    });
-    merged.sourceStatus.push(...(input.sourceStatus || []).filter(function (item) {
-      return item.projectId === undefined || seen.has(String(item.projectId));
-    }));
-    merged.failedRequests.push(...(input.failedRequests || []));
-  });
-  return merged;
-}
-
 export function createAnalyticsEngine() {
   function buildReport(input) {
     if (!input || typeof input !== "object") {
@@ -569,7 +523,6 @@ export function createAnalyticsEngine() {
         candidateCount: input.formalScope && input.formalScope.candidateProjectCount !== undefined
           ? input.formalScope.candidateProjectCount
           : allProjects.length,
-        persistable: !selectedIds && input.complete === true,
         periodLabels: labels
       },
       complete: input.complete === true,
@@ -596,113 +549,50 @@ export function createAnalyticsEngine() {
     if (!input || typeof input !== "object") {
       throw new AnalyticsSchemaError("company", "must be an object", input);
     }
-    const live = input.liveInput || (Array.isArray(input.projects) ? input : null);
-    if (live) {
-      const seen = new Set();
-      const projects = (live.projects || []).filter(function (project) {
-        const projectId = String(project.projectId);
-        if (seen.has(projectId)) return false;
-        seen.add(projectId);
-        return true;
-      });
-      const liveInput = Object.assign({}, live, {
-        departmentId: "all",
-        departmentName: "全部部门",
-        projects
-      });
-      const departments = input.departments || live.scope && live.scope.departments || [];
-      const report = buildReport(liveInput);
-      const departmentRows = departments.map(function (department) {
-        const departmentId = String(department.id);
-        const projectIds = projects.filter(function (project) {
-          return String(project.projectDept) === departmentId;
-        }).map(function (project) { return String(project.projectId); });
-        const failed = (live.failedRequests || []).some(function (descriptor) {
-          return descriptor.projectId === undefined || descriptor.projectId === null ||
-            projectIds.includes(String(descriptor.projectId));
-        });
-        const departmentReport = buildReport(Object.assign({}, liveInput, {
-          departmentId,
-          departmentName: department.name,
-          selectedProjectIds: projectIds,
-          complete: !failed
-        }));
-        return {
-          departmentId,
-          departmentName: department.name,
-          projectCount: departmentReport.metrics.overview.projectCount,
-          status: failed ? "failed" : "ready",
-          complete: !failed,
-          capturedAt: live.capturedAt || null,
-          metrics: departmentReport.metrics
-        };
-      });
-      const completedDepartments = departmentRows.filter(function (item) { return item.complete; }).length;
-      report.scope.persistable = false;
-      report.company = {
-        complete: live.complete === true && completedDepartments === departments.length,
-        coverage: departments.length > 0 ? completedDepartments / departments.length : 1,
-        departments: departmentRows,
-        missingDepartmentIds: departmentRows.filter(function (item) { return !item.complete; })
-          .map(function (item) { return item.departmentId; })
-      };
-      return report;
-    }
-    const range = normalizeDateRange(input);
-    const departments = input.departments || [];
-    const expectedIds = new Set(departments.map(function (item) { return String(item.id); }));
-    const snapshotsByDepartment = new Map();
-    (input.snapshots || []).forEach(function (snapshot) {
-      const value = snapshot && snapshot.input;
-      if (!snapshot || snapshot.complete !== true || !value || value.complete !== true) return;
-      if (value.configVersion !== input.configVersion || value.policyVersion !== input.policyVersion) return;
-      if (value.startDate !== range.startDate || value.endDate !== range.endDate) return;
-      const departmentId = String(value.departmentId);
-      if (expectedIds.size > 0 && !expectedIds.has(departmentId)) return;
-      const existing = snapshotsByDepartment.get(departmentId);
-      if (!existing || String(snapshot.capturedAt || value.capturedAt || "") > String(existing.capturedAt || existing.input.capturedAt || "")) {
-        snapshotsByDepartment.set(departmentId, snapshot);
-      }
+    const live = input.liveInput || input;
+    const seen = new Set();
+    const projects = (live.projects || []).filter(function (project) {
+      const projectId = String(project.projectId);
+      if (seen.has(projectId)) return false;
+      seen.add(projectId);
+      return true;
     });
-    const availableInputs = [...snapshotsByDepartment.values()].map(function (snapshot) { return snapshot.input; });
-    const complete = departments.length > 0 && snapshotsByDepartment.size === departments.length;
-    const mergedInput = mergeCompanyInputs(availableInputs, {
-      configVersion: input.configVersion,
-      policyVersion: input.policyVersion,
-      startDate: range.startDate,
-      endDate: range.endDate,
-      complete,
-      historyMode: "company"
+    const liveInput = Object.assign({}, live, {
+      departmentId: "all",
+      departmentName: "全部部门",
+      projects
     });
-    const report = buildReport(mergedInput);
+    const departments = input.departments || live.scope && live.scope.departments || [];
+    const report = buildReport(liveInput);
     const departmentRows = departments.map(function (department) {
-      const snapshot = snapshotsByDepartment.get(String(department.id));
-      if (!snapshot) {
-        return {
-          departmentId: String(department.id),
-          departmentName: department.name,
-          projectCount: null,
-          status: "missing",
-          complete: false,
-          capturedAt: null,
-          metrics: null
-        };
-      }
-      const departmentReport = snapshot.report || buildReport(snapshot.input);
+      const departmentId = String(department.id);
+      const projectIds = projects.filter(function (project) {
+        return String(project.projectDept) === departmentId;
+      }).map(function (project) { return String(project.projectId); });
+      const failed = (live.failedRequests || []).some(function (descriptor) {
+        return descriptor.projectId === undefined || descriptor.projectId === null ||
+          projectIds.includes(String(descriptor.projectId));
+      });
+      const departmentReport = buildReport(Object.assign({}, liveInput, {
+        departmentId,
+        departmentName: department.name,
+        selectedProjectIds: projectIds,
+        complete: !failed
+      }));
       return {
-        departmentId: String(department.id),
+        departmentId,
         departmentName: department.name,
         projectCount: departmentReport.metrics.overview.projectCount,
-        status: "ready",
-        complete: true,
-        capturedAt: snapshot.capturedAt || snapshot.input.capturedAt,
+        status: failed ? "failed" : "ready",
+        complete: !failed,
+        capturedAt: live.capturedAt || null,
         metrics: departmentReport.metrics
       };
     });
-    report.scope.persistable = complete;
+    const completedDepartments = departmentRows.filter(function (item) { return item.complete; }).length;
     report.company = {
-      complete,
-      coverage: departments.length > 0 ? snapshotsByDepartment.size / departments.length : 1,
+      complete: live.complete === true && completedDepartments === departments.length,
+      coverage: departments.length > 0 ? completedDepartments / departments.length : 1,
       departments: departmentRows,
       missingDepartmentIds: departmentRows.filter(function (item) { return !item.complete; })
         .map(function (item) { return item.departmentId; })

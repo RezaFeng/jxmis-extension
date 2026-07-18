@@ -1,4 +1,4 @@
-import { AnalyticsSchemaError, PROJECT_ENUMS, normalizeDateRange } from "./domain.js";
+import { AnalyticsSchemaError, PROJECT_ENUMS } from "./domain.js";
 
 export const FILTER_FIELDS = Object.freeze([
   "attribute",
@@ -165,24 +165,6 @@ export function migrateStoredConfig(stored = {}) {
     analyticsConfigVersion: analytics.configVersion,
     analyticsPolicyVersion: analytics.policyVersion
   });
-}
-
-export function createReportKey(input) {
-  if (!input || typeof input !== "object") {
-    throw new AnalyticsSchemaError("reportKey", "input must be an object", input);
-  }
-  const range = normalizeDateRange(input);
-  const configVersion = String(input.configVersion || "").trim();
-  const policyVersion = String(input.policyVersion || "").trim();
-  const departmentId = String(input.departmentId || "").trim();
-  if (!configVersion || !policyVersion || !departmentId) {
-    throw new AnalyticsSchemaError(
-      "reportKey",
-      "configVersion, policyVersion and departmentId are required",
-      input
-    );
-  }
-  return [configVersion, policyVersion, encodeURIComponent(departmentId), range.startDate, range.endDate].join(":");
 }
 
 export function projectMatchesFilters(project, filters) {

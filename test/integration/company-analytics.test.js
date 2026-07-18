@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createAnalyticsEngine } from "../../src/analytics/engine.js";
-import { createReportKey } from "../../src/analytics/config.js";
-import { createBusinessAnalyticsController } from "../../src/content/business-analytics/controller.js";
 import { renderCompanyAnalyticsSection } from "../../src/content/business-analytics/report-view.js";
-import { MESSAGE_TYPES } from "../../src/shared/protocol.js";
 
 function project(id, revenue, bac, ac, departmentId) {
   return {
@@ -84,7 +81,7 @@ test("company analytics deduplicates one live result and recomputes department r
   assert.equal(report.company.departments.find(function (item) {
     return item.departmentId === "D3";
   }).status, "ready");
-  assert.equal(report.scope.persistable, false);
+  assert.equal(report.scope.persistable, undefined);
 });
 
 test("company analytics isolates a project failure to its live department", function () {
@@ -103,51 +100,6 @@ test("company analytics isolates a project failure to its live department", func
   assert.equal(report.company.departments[0].status, "ready");
   assert.equal(report.company.departments[1].status, "failed");
   assert.deepEqual(report.company.missingDepartmentIds, ["D2"]);
-});
-
-test("company analytics controller aggregates department snapshots without background collection", async function () {
-  const departments = [{ id: "D1", name: "一部", projectCount: 1 }, { id: "D2", name: "二部", projectCount: 1 }];
-  const config = { projectFilters: {}, riskThresholds: {}, configVersion: "config-v1", policyVersion: "policy-v1" };
-  const snapshots = new Map(departments.map(function (department, index) {
-    const value = input(department.id, department.name, [project("P" + (index + 1), 100, 50, 25)]);
-    return [createReportKey(value), { complete: true, capturedAt: value.capturedAt, input: value }];
-  }));
-  const runtimeMessages = [];
-  const pageMessages = [];
-  const reports = [];
-  const states = [];
-  const windowRef = { addEventListener: function () {}, postMessage: function (message) { pageMessages.push(message); } };
-  const controller = createBusinessAnalyticsController({
-    window: windowRef,
-    document: {},
-    config,
-    departments,
-    navigation: { restore: function () {}, isActive: function () { return false; }, syncLocation: function () {} },
-    view: {
-      getQuery: function () { return { departmentId: "all", departmentName: "全部部门", startDate: "2026-07-06", endDate: "2026-07-12" }; },
-      renderState: function (state) { states.push(state); },
-      renderReport: function (report) { reports.push(report); }
-    },
-    chrome: {
-      runtime: {
-        getURL: function () { return "business-analytics.css"; },
-        openOptionsPage: function () {},
-        sendMessage: function (message, callback) {
-          runtimeMessages.push(message);
-          callback({ ok: true, result: snapshots.get(message.reportKey) || null });
-        }
-      },
-      storage: { local: { get: function (_defaults, callback) { callback({}); } } }
-    }
-  });
-
-  await controller.query(false);
-
-  assert.equal(runtimeMessages.length, 2);
-  assert.equal(runtimeMessages.every(function (message) { return message.type === MESSAGE_TYPES.ANALYTICS_GET_LATEST; }), true);
-  assert.equal(pageMessages.length, 0);
-  assert.equal(reports[0].company.coverage, 1);
-  assert.match(states.at(-1).status, /部门覆盖 2\/2/);
 });
 
 class FakeElement {
@@ -176,9 +128,9 @@ function findByRole(root, role) {
 
 test("company analytics view shows department coverage and drills down", function () {
   const engine = createAnalyticsEngine();
-  const value = input("D1", "一部", [project("P1", 100000, 50000, 25000)]);
+  const value = input("all", "全部部门", [project("P1", 100000, 50000, 25000, "D1")]);
   const report = engine.buildCompanyReport({
-    snapshots: [{ complete: true, capturedAt: value.capturedAt, input: value }],
+    liveInput: value,
     departments: [{ id: "D1", name: "一部" }, { id: "D2", name: "二部" }],
     configVersion: "config-v1",
     policyVersion: "policy-v1",
@@ -196,10 +148,9 @@ test("company analytics view shows department coverage and drills down", functio
   );
 
   const section = findByRole(host, "company-analytics");
-  assert.match(section.textContent, /全部部门总览部门覆盖 1\/2/);
+  assert.match(section.textContent, /全部部门总览部门覆盖 2\/2/);
   assert.match(section.textContent, /一部完整1/);
-  assert.match(section.textContent, /二部缺失未获取/);
-  assert.doesNotMatch(section.textContent, /二部缺失0/);
+  assert.match(section.textContent, /二部完整0/);
   findByRole(section, "department-D1").click();
   assert.deepEqual(selected, ["D1"]);
 });

@@ -55,26 +55,10 @@ function sendRuntimeMessage(chrome, message) {
   });
 }
 
-function createAnalyticsRepository() {
-  const snapshots = new Map();
-  return {
-    getLatest: async function (key) { return snapshots.get(key) || null; },
-    saveComplete: async function (snapshot) { snapshots.set(snapshot.reportKey, snapshot); return snapshot; },
-    saveQueryCache: async function (entry) { return entry; },
-    retryDescriptor: async function () { return [{ source: "wbs" }]; },
-    saveFailedRequests: async function () {},
-    cleanup: async function () { return { removedCache: 1, removedHistory: 0 }; },
-    clearQueryCache: async function () {},
-    clearHistory: async function () {},
-    getStats: async function () { return { queryCache: { count: 0 } }; }
-  };
-}
-
 test("background runtime handles model and cache messages", async function () {
   const chrome = createChrome();
   const runtime = registerBackgroundRuntime({
     chrome: chrome,
-    analyticsRepository: createAnalyticsRepository(),
     fetch: async function (url) {
       assert.equal(url, "https://ai.example.com/v1/models");
       return {
@@ -103,36 +87,34 @@ test("background runtime handles model and cache messages", async function () {
   assert.equal(chrome.runtime.optionsOpened, true);
 });
 
-test("background analytics messages use repository contracts", async function () {
+test("background analytics deletes the legacy database and ignores persistence messages", async function () {
   const chrome = createChrome();
-  registerBackgroundRuntime({
+  const deleted = [];
+  const runtime = registerBackgroundRuntime({
     chrome,
-    analyticsRepository: createAnalyticsRepository(),
+    indexedDB: {
+      deleteDatabase: function (name) {
+        deleted.push(name);
+        const request = {};
+        queueMicrotask(function () { request.onsuccess(); });
+        return request;
+      }
+    },
     fetch: async function () { throw new Error("unexpected fetch"); }
   });
-  const snapshot = { reportKey: "R1", complete: true, capturedAt: "2026-07-18T00:00:00Z" };
-  assert.equal((await sendRuntimeMessage(chrome, {
-    type: MESSAGE_TYPES.ANALYTICS_SAVE_COMPLETE,
-    requestId: "save-1",
-    snapshot
-  })).ok, true);
-  const latest = await sendRuntimeMessage(chrome, {
-    type: MESSAGE_TYPES.ANALYTICS_GET_LATEST,
-    requestId: "get-1",
-    reportKey: "R1"
-  });
-  assert.deepEqual(latest, { ok: true, result: snapshot });
-  assert.deepEqual(await sendRuntimeMessage(chrome, {
-    type: MESSAGE_TYPES.ANALYTICS_GET_LATEST,
-    reportKey: "R1"
-  }), { ok: false, error: "requestId is required" });
+  assert.deepEqual(await runtime.legacyCleanup, { status: "deleted" });
+  assert.deepEqual(deleted, ["cw-business-analytics"]);
+  const handled = chrome.runtime.onMessage.first()({
+    type: "CW_ANALYTICS_GET_LATEST",
+    requestId: "old-1"
+  }, {}, function () { throw new Error("unexpected response"); });
+  assert.equal(handled, false);
 });
 
 test("background port returns stream content and done", async function () {
   const chrome = createChrome();
   registerBackgroundRuntime({
     chrome: chrome,
-    analyticsRepository: createAnalyticsRepository(),
     fetch: async function () {
       return {
         ok: true,

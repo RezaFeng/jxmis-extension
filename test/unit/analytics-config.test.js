@@ -4,7 +4,6 @@ import {
   DEFAULT_PROJECT_FILTERS,
   DEFAULT_RISK_THRESHOLDS,
   createAnalyticsConfig,
-  createReportKey,
   migrateStoredConfig,
   projectMatchesFilters,
   stableVersion,
@@ -122,16 +121,6 @@ test("analytics config migrates legacy storage without losing AI settings", func
   });
   assert.equal(typeof migrated.analyticsConfigVersion, "string");
   assert.equal(typeof migrated.analyticsPolicyVersion, "string");
-});
-
-test("analytics config creates the specified report identity", function () {
-  assert.equal(createReportKey({
-    configVersion: "config-v1",
-    policyVersion: "policy-v2",
-    departmentId: "D:10",
-    startDate: "2026-07-06",
-    endDate: "2026-07-12"
-  }), "config-v1:policy-v2:D%3A10:2026-07-06:2026-07-12");
 });
 
 test("analytics config normalizes project values without discarding future enums", function () {

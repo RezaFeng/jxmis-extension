@@ -1,9 +1,9 @@
 import { DEFAULT_SYSTEM_PROMPT } from "../shared/defaults.js";
 import { DEFAULT_PROVIDER } from "../shared/ai-request-body.js";
-import { AI_PORT_TYPES, MESSAGE_TYPES, isValidRequestId, parseAiPortEvent } from "../shared/protocol.js";
+import { AI_PORT_TYPES, MESSAGE_TYPES, parseAiPortEvent } from "../shared/protocol.js";
 import { createAiClient } from "./ai-client.js";
 import { createConfigStore } from "./config-store.js";
-import { createAnalyticsRepository } from "./business-analytics/repository.js";
+import { cleanupLegacyAnalyticsDatabase } from "./business-analytics/legacy-cleanup.js";
 
 export function registerBackgroundRuntime(adapters) {
   const chrome = adapters.chrome;
@@ -17,8 +17,9 @@ export function registerBackgroundRuntime(adapters) {
     systemPrompt: DEFAULT_SYSTEM_PROMPT
   };
   const configStore = createConfigStore(chrome, defaultConfig);
-  const analyticsRepository = adapters.analyticsRepository || createAnalyticsRepository(
-    adapters.indexedDB || globalThis.indexedDB
+  const legacyCleanup = cleanupLegacyAnalyticsDatabase(
+    adapters.indexedDB || globalThis.indexedDB,
+    adapters.logger
   );
   const aiClient = createAiClient({
     fetch: adapters.fetch,
@@ -38,10 +39,7 @@ export function registerBackgroundRuntime(adapters) {
       return false;
     }
     let operation = null;
-    if (String(message.type || "").startsWith("CW_ANALYTICS_") && !isValidRequestId(message.requestId)) {
-      operation = Promise.resolve({ ok: false, error: "requestId is required" });
-    }
-    else if (message.type === MESSAGE_TYPES.AI_FETCH_MODELS) {
+    if (message.type === MESSAGE_TYPES.AI_FETCH_MODELS) {
       operation = aiClient.fetchModels().then(function (models) {
         return { ok: true, models: models };
       });
@@ -53,24 +51,6 @@ export function registerBackgroundRuntime(adapters) {
       operation = configStore.setWeeklySummaryCache(message.key, message.value).then(function () {
         return { ok: true };
       });
-    } else if (message.type === MESSAGE_TYPES.ANALYTICS_GET_LATEST) {
-      operation = analyticsRepository.getLatest(message.reportKey).then(function (result) { return { ok: true, result }; });
-    } else if (message.type === MESSAGE_TYPES.ANALYTICS_SAVE_COMPLETE) {
-      operation = analyticsRepository.saveComplete(message.snapshot).then(function (result) { return { ok: true, result }; });
-    } else if (message.type === MESSAGE_TYPES.ANALYTICS_SAVE_QUERY_CACHE) {
-      operation = analyticsRepository.saveQueryCache(message.entry).then(function (result) { return { ok: true, result }; });
-    } else if (message.type === MESSAGE_TYPES.ANALYTICS_GET_FAILED) {
-      operation = analyticsRepository.retryDescriptor(message.reportKey).then(function (result) { return { ok: true, result }; });
-    } else if (message.type === MESSAGE_TYPES.ANALYTICS_SAVE_FAILED) {
-      operation = analyticsRepository.saveFailedRequests(message.reportKey, message.descriptors).then(function () { return { ok: true }; });
-    } else if (message.type === MESSAGE_TYPES.ANALYTICS_CLEANUP) {
-      operation = analyticsRepository.cleanup().then(function (result) { return { ok: true, result }; });
-    } else if (message.type === MESSAGE_TYPES.ANALYTICS_CLEAR_CACHE) {
-      operation = analyticsRepository.clearQueryCache().then(function () { return { ok: true }; });
-    } else if (message.type === MESSAGE_TYPES.ANALYTICS_CLEAR_HISTORY) {
-      operation = analyticsRepository.clearHistory().then(function () { return { ok: true }; });
-    } else if (message.type === MESSAGE_TYPES.ANALYTICS_STATS) {
-      operation = analyticsRepository.getStats().then(function (result) { return { ok: true, result }; });
     }
     if (!operation) {
       return false;
@@ -113,5 +93,5 @@ export function registerBackgroundRuntime(adapters) {
     });
   });
 
-  return { aiClient, configStore, analyticsRepository };
+  return { aiClient, configStore, legacyCleanup };
 }

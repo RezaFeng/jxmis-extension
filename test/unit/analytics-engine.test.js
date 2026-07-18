@@ -89,7 +89,7 @@ test("analytics engine outputs 34 cards and 35 values", function () {
   assert.equal(cards.length, 34);
   assert.equal(values.length, 35);
   assert.equal(report.scope.periodLabels.current, "本周");
-  assert.equal(report.scope.persistable, true);
+  assert.equal(report.scope.persistable, undefined);
   assert.equal(report.metrics.overview.cpi, 0.5);
   assert.equal(report.metrics.risks.attentionProjectCount, 2);
   assert.equal(report.metrics.milestone.overdueCount, 1);
@@ -109,12 +109,12 @@ test("analytics engine keeps future WBS completion out of report cutoff", functi
   }), true);
 });
 
-test("analytics engine marks temporary project selection as non-persistable", function () {
+test("analytics engine marks temporary project selection explicitly", function () {
   const report = createAnalyticsEngine().buildReport(fixture({ selectedProjectIds: ["P2"] }));
   assert.equal(report.scope.mode, "selection");
   assert.equal(report.scope.selectedCount, 1);
   assert.equal(report.scope.totalCount, 2);
-  assert.equal(report.scope.persistable, false);
+  assert.equal(report.scope.persistable, undefined);
   assert.equal(report.metrics.overview.projectCount, 1);
   assert.deepEqual(report.tables.projects.map(function (project) { return project.projectId; }), ["P2"]);
 });

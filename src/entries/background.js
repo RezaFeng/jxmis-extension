@@ -9,6 +9,7 @@ if (typeof globalThis.window === "object" && globalThis.window === globalThis) {
     chrome: globalThis.chrome,
     fetch: globalThis.fetch,
     AbortController: globalThis.AbortController,
+    indexedDB: globalThis.indexedDB,
     TextDecoder: globalThis.TextDecoder,
     logger: console
   });

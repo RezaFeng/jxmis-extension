@@ -38,9 +38,11 @@ test("requires request ids for request-response message types", function () {
     { userPrompt: "summary" }
   );
   assert.equal(protocol.parseMessage(message).ok, true);
+  assert.equal(protocol.MESSAGE_TYPES.ANALYTICS_GET_LATEST, undefined);
   assert.equal(protocol.parseMessage({
     source: protocol.SOURCES.ANALYTICS_CONTENT,
-    type: protocol.MESSAGE_TYPES.ANALYTICS_GET_LATEST,
+    type: "CW_ANALYTICS_GET_LATEST",
+    requestId: "old-1",
     reportKey: "R1"
   }).ok, false);
   assert.equal(protocol.parseMessage({
