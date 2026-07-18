@@ -224,8 +224,7 @@ export function startContentRuntime(adapters) {
   }
 
   function isBusinessAnalyticsPage() {
-    const value = String(window.location.href || "") + " " + String(window.location.hash || "");
-    return value.includes("/project/ProjectInfoService/projectinDedaultHomePage");
+    return Boolean(document.querySelector('#menunav > li[appid="project:1201,jxoa"]'));
   }
 
   function ensureDailyPanel() {
