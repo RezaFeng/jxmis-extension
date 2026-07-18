@@ -5,6 +5,12 @@ import {
   normalizeMilestoneRows,
   normalizeWbsRows
 } from "./normalizers.js";
+import {
+  aggregateWeeklyReports,
+  normalizeWeeklyReportDetail,
+  selectWeeklyReports,
+  weeklyReportApplies
+} from "./weekly-reports.js";
 
 const DEFAULT_PAGE_SIZE = 200;
 
@@ -165,5 +171,57 @@ export function createJxpmoAnalyticsData(adapters) {
     return result(normalizeMilestoneRows(rows));
   }
 
-  return { fetchDepartments, fetchProjects, fetchDailyRows, fetchWbs, fetchMilestones };
+  async function fetchWeeklyDetail(wkId, signal) {
+    const query = new URLSearchParamsCtor({
+      queryType: "all",
+      queryName: "queryByProjectInfo",
+      wkId: String(wkId)
+    });
+    return fetchJson(
+      function (url, options) { return fetchFn(url, Object.assign({}, options, { signal })); },
+      baseUrl() + "/rest/project/queryByProjectInfosService/query?" + query.toString(),
+      "fetch analytics weekly detail " + wkId
+    );
+  }
+
+  async function fetchWeeklyReports(project, range, signal) {
+    if (!weeklyReportApplies(project)) {
+      return { status: "notApplicable", rows: [], replacedIds: [] };
+    }
+    const projectId = String(project.projectId);
+    const list = await fetchPagedEndpoint(
+      "/rest/project/WkReportService/query",
+      { queryName: "queryByProjectId", projectId },
+      "fetch analytics weekly reports " + projectId,
+      signal
+    );
+    if (list.length === 0) {
+      return { status: "empty", rows: [], replacedIds: [] };
+    }
+    const details = [];
+    for (const listRow of list) {
+      const wkId = String(listRow && listRow.wkId || "").trim();
+      if (!wkId) {
+        throw new Error("weekly.wkId is required");
+      }
+      const payload = await fetchWeeklyDetail(wkId, signal);
+      details.push(normalizeWeeklyReportDetail(payload, listRow));
+    }
+    const selected = selectWeeklyReports(details, range);
+    return {
+      status: selected.reports.length > 0 ? "success" : "empty",
+      rows: selected.reports,
+      replacedIds: selected.replacedIds,
+      aggregate: aggregateWeeklyReports(selected.reports)
+    };
+  }
+
+  return {
+    fetchDepartments,
+    fetchProjects,
+    fetchDailyRows,
+    fetchWbs,
+    fetchMilestones,
+    fetchWeeklyReports
+  };
 }
