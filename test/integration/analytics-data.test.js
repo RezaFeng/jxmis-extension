@@ -1,0 +1,75 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  createJxpmoAnalyticsData,
+  fetchAllAnalyticsPages
+} from "../../src/page/business-analytics/jxpmo-data.js";
+
+test("analytics data completes project pagination without a fixed cap", async function () {
+  const offsets = [];
+  const rows = await fetchAllAnalyticsPages(async function ({ offset, pageSize }) {
+    offsets.push(offset);
+    return {
+      recordsTotal: 5,
+      rows: Array.from({ length: Math.min(pageSize, 5 - offset) }, function (_, index) {
+        return { id: offset + index };
+      })
+    };
+  }, { pageSize: 2 });
+  assert.deepEqual(offsets, [0, 2, 4]);
+  assert.equal(rows.length, 5);
+});
+
+test("analytics data reports incomplete pagination", async function () {
+  await assert.rejects(fetchAllAnalyticsPages(async function ({ offset }) {
+    return { recordsTotal: 5, rows: offset === 0 ? [{ id: 1 }] : [] };
+  }, { pageSize: 2 }), /ended before recordsTotal/);
+});
+
+test("analytics data paginates to a short page when totals are absent", async function () {
+  const offsets = [];
+  const rows = await fetchAllAnalyticsPages(async function ({ offset }) {
+    offsets.push(offset);
+    return { rows: offset < 4 ? [{ id: offset }, { id: offset + 1 }] : [{ id: offset }] };
+  }, { pageSize: 2 });
+  assert.deepEqual(offsets, [0, 2, 4]);
+  assert.equal(rows.length, 5);
+});
+
+test("analytics data uses same-origin endpoints and normalizes all project pages", async function () {
+  const requests = [];
+  const data = createJxpmoAnalyticsData({
+    location: { origin: "https://jxmis.example.com" },
+    storage: { getItem: function () { return "/jxpmo"; } },
+    pageSize: 2,
+    fetch: async function (url, options) {
+      requests.push({ url, options });
+      if (url.includes("unitTree")) {
+        return { ok: true, json: async function () { return [{ id: "2", text: "交付部", attributes: { privLevel: "2" } }]; } };
+      }
+      const start = Number(new URL(url).searchParams.get("start"));
+      const raw = [0, 1, 2].slice(start, start + 2).map(function (index) {
+        return {
+          projectId: "P" + index,
+          projectName: "项目" + index,
+          projectDept: "2",
+          classification: "J",
+          currStatus: "20",
+          subcontractAmount: "100"
+        };
+      });
+      return { ok: true, json: async function () { return { recordsTotal: 3, rows: raw }; } };
+    }
+  });
+  assert.equal((await data.fetchDepartments()).length, 1);
+  const projects = await data.fetchProjects();
+  assert.equal(projects.length, 3);
+  assert.equal(projects[0].subcontractAmount, 100);
+  requests.forEach(function (request) {
+    assert.equal(request.options.credentials, "same-origin");
+  });
+  const projectUrls = requests.filter(function (request) { return request.url.includes("ProjectInfoService"); });
+  assert.equal(projectUrls.length, 2);
+  assert.equal(projectUrls.some(function (request) { return request.url.includes("likeAll"); }), false);
+  assert.equal(projectUrls.some(function (request) { return request.url.includes("projectDept"); }), false);
+});
