@@ -368,6 +368,66 @@ export function renderAnalyticsManagementSections(document, container, report, o
   container.appendChild(diagnostics);
 }
 
+export function renderCompanyAnalyticsSection(document, container, report, onDepartment = function () {}) {
+  if (!report.company) return;
+  const section = createOperationalSection(document, "全部部门总览", "company-analytics");
+  const coverage = document.createElement("p");
+  coverage.className = "coverage-summary";
+  coverage.textContent = "部门覆盖 " + Math.round(report.company.coverage * report.company.departments.length) +
+    "/" + report.company.departments.length;
+  section.appendChild(coverage);
+  const wrap = document.createElement("div");
+  wrap.className = "table-scroll";
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const header = document.createElement("tr");
+  ["部门", "状态", "项目数", "最后更新时间", "收入", "AC", "CPI", "需关注项目", "有投入项目", "逾期里程碑", "逾期回款"]
+    .forEach(function (label) {
+      const th = document.createElement("th");
+      th.textContent = label;
+      header.appendChild(th);
+    });
+  thead.appendChild(header);
+  const tbody = document.createElement("tbody");
+  report.company.departments.forEach(function (department) {
+    const tr = document.createElement("tr");
+    const name = document.createElement("td");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "drilldown-button";
+    button.dataset.role = "department-" + department.departmentId;
+    button.textContent = department.departmentName || department.departmentId;
+    button.addEventListener("click", function () { onDepartment(department.departmentId); });
+    name.appendChild(button);
+    tr.appendChild(name);
+    const metrics = department.metrics;
+    const values = [
+      department.complete ? "完整" : "缺失",
+      department.projectCount,
+      department.capturedAt,
+      metrics?.overview?.revenue,
+      metrics?.overview?.ac,
+      metrics?.overview?.cpi,
+      metrics?.risks?.attentionProjectCount,
+      metrics?.active?.projectCount,
+      metrics?.milestone?.overdueCount,
+      metrics?.invoice?.overdueCount
+    ];
+    values.forEach(function (value, index) {
+      const td = document.createElement("td");
+      if ([3, 4].includes(index)) td.textContent = formatOperationalValue(value, "money");
+      else if (index === 5) td.textContent = formatOperationalValue(value, "ratio");
+      else td.textContent = value === null || value === undefined || value === "" ? "未获取" : String(value);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.append(thead, tbody);
+  wrap.appendChild(table);
+  section.appendChild(wrap);
+  container.appendChild(section);
+}
+
 function replaceAnalyticsOperationalSections(document, container, report) {
   const replacementHost = document.createElement("div");
   renderAnalyticsOperationalSections(document, replacementHost, report);
@@ -466,6 +526,10 @@ export function createBusinessAnalyticsReportView(adapters) {
     all.value = "all";
     all.textContent = "全部部门";
     elements.department.appendChild(all);
+  }
+
+  function setDepartment(departmentId) {
+    elements.department.value = String(departmentId || "");
   }
 
   function getQuery() {
@@ -645,6 +709,7 @@ export function createBusinessAnalyticsReportView(adapters) {
     elements.summary.hidden = false;
     elements.summary.textContent = "";
     const executive = document.createElement("section");
+    renderCompanyAnalyticsSection(document, elements.summary, report, adapters.onDepartment);
     executive.className = "report-section executive";
     const executiveTitle = document.createElement("h2");
     executiveTitle.textContent = "本期例会速览与风险预警";
@@ -657,7 +722,7 @@ export function createBusinessAnalyticsReportView(adapters) {
     const overview = document.createElement("section");
     overview.className = "report-section";
     const title = document.createElement("h2");
-    title.textContent = "部门经营概览";
+    title.textContent = report.company ? "公司经营概览" : "部门经营概览";
     overview.appendChild(title);
     const overviewCards = document.createElement("div");
     overviewCards.dataset.role = "overview-cards";
@@ -674,5 +739,5 @@ export function createBusinessAnalyticsReportView(adapters) {
     renderAnalyticsManagementSections(document, elements.summary, report, adapters.onAction);
   }
 
-  return { mount, setDateRange, setDepartments, getQuery, renderState, renderResult, renderReport };
+  return { mount, setDateRange, setDepartments, setDepartment, getQuery, renderState, renderResult, renderReport };
 }

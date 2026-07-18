@@ -20,7 +20,8 @@ export function createBusinessAnalyticsController(adapters) {
     document: adapters.document,
     cssUrl: chrome.runtime.getURL("business-analytics.css"),
     onAction: function (action) { controller.handleAction(action); },
-    onSelection: function (projectIds) { controller.selectProjects(projectIds); }
+    onSelection: function (projectIds) { controller.selectProjects(projectIds); },
+    onDepartment: function (departmentId) { controller.selectDepartment(departmentId); }
   });
   let config = adapters.config;
   let activeRequestId = null;
@@ -29,6 +30,7 @@ export function createBusinessAnalyticsController(adapters) {
   let formalInput = null;
   let formalReport = null;
   let previousSnapshot = null;
+  let availableDepartments = adapters.departments || [];
 
   function requestId(prefix) {
     requestSequence += 1;
@@ -71,6 +73,32 @@ export function createBusinessAnalyticsController(adapters) {
     });
   }
 
+  async function loadCompanyReport(values) {
+    const results = await Promise.all(availableDepartments.map(async function (department) {
+      const reportKey = createReportKey(Object.assign({}, values, config, {
+        departmentId: department.id
+      }));
+      const response = await sendBackground(MESSAGE_TYPES.ANALYTICS_GET_LATEST, { reportKey });
+      return response.ok ? response.result : null;
+    }));
+    const report = engine.buildCompanyReport({
+      snapshots: results.filter(Boolean),
+      departments: availableDepartments,
+      configVersion: config.configVersion,
+      policyVersion: config.policyVersion,
+      startDate: values.startDate,
+      endDate: values.endDate
+    });
+    formalInput = null;
+    formalReport = report;
+    view.renderReport(report, { formal: true, cached: true, company: true });
+    view.renderState({
+      kind: report.company.complete ? "ready" : "partial",
+      status: "部门覆盖 " + Math.round(report.company.coverage * availableDepartments.length) + "/" + availableDepartments.length,
+      message: report.company.complete ? "全部有效部门快照已聚合。" : "部分部门尚无同口径完整快照。"
+    });
+  }
+
   async function open() {
     const shadow = navigation.mount();
     view.mount(shadow);
@@ -100,6 +128,10 @@ export function createBusinessAnalyticsController(adapters) {
         historyMode: options.historical ? "interval" : "current"
       });
       view.renderState({ kind: "loading", message: "正在准备经营数据..." });
+      if (values.departmentId === "all" && options.forceRefresh !== true && availableDepartments.length > 0) {
+        await loadCompanyReport(values);
+        return;
+      }
       const reportKey = createReportKey(Object.assign({}, values, config));
       if (options.forceRefresh !== true) {
         const cached = await sendBackground(MESSAGE_TYPES.ANALYTICS_GET_LATEST, { reportKey });
@@ -184,6 +216,12 @@ export function createBusinessAnalyticsController(adapters) {
     view.renderReport(report, { formal: false });
   }
 
+  function selectDepartment(departmentId) {
+    if (!view.setDepartment) return;
+    view.setDepartment(departmentId);
+    query(false);
+  }
+
   function persistFormalResult(input, report) {
     const reportKey = createReportKey(input);
     if (input.complete === true && report.scope.persistable) {
@@ -249,6 +287,7 @@ export function createBusinessAnalyticsController(adapters) {
     }
     const result = message.result;
     if (result.scopeOnly) {
+      availableDepartments = result.scope.departments || [];
       view.setDepartments(result.scope.departments);
       view.renderState({ kind: "initial", status: "部门已加载" });
       return;
@@ -286,6 +325,16 @@ export function createBusinessAnalyticsController(adapters) {
   }
 
   window.addEventListener("message", handlePageMessage);
-  controller = { open, query, retryFailed, cancel, handleAction, selectProjects, ensureNavigation, syncLocation };
+  controller = {
+    open,
+    query,
+    retryFailed,
+    cancel,
+    handleAction,
+    selectProjects,
+    selectDepartment,
+    ensureNavigation,
+    syncLocation
+  };
   return controller;
 }

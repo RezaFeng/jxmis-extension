@@ -41,6 +41,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 [data-role="pm-analytics"] table { min-width: 1120px; }
 [data-role="budget-health"] table { min-width: 1420px; }
 [data-role="weekly-execution"] table { min-width: 1320px; }
+[data-role="company-analytics"] table { min-width: 1480px; }
+.drilldown-button { min-height: 0; border: 0; padding: 0; color: #1769aa; background: transparent; }
+.drilldown-button:hover { border-color: transparent; text-decoration: underline; }
 .coverage-summary { margin: 0 0 12px; font-size: 16px; font-weight: 650; }
 [data-role="data-diagnostics"] > button { margin-top: 14px; }
 .project-filters { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(120px, 160px)) auto auto; gap: 8px; align-items: center; margin-bottom: 12px; }
