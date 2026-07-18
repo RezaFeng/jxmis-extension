@@ -5,3 +5,8 @@ dist-test/
 release/
 playwright-report/
 test-results/
+.claude/
+.ai/
+.agents/
+AGENTS.md
+CLAUDE.md
