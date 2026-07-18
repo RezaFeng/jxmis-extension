@@ -275,6 +275,35 @@ function countCardValues(cards) {
   }, 0);
 }
 
+function createHistory(input, metrics) {
+  const previous = input.previousReport;
+  if (!previous || !previous.metrics) {
+    return { previousAvailable: false, previous: null, changes: {} };
+  }
+  const changes = {};
+  ["overview", "active", "milestone", "invoice", "risks"].forEach(function (section) {
+    const currentValues = metrics[section] || {};
+    const previousValues = previous.metrics[section] || {};
+    const sectionChanges = {};
+    new Set([...Object.keys(currentValues), ...Object.keys(previousValues)]).forEach(function (field) {
+      const current = currentValues[field];
+      const prior = previousValues[field];
+      if ((known(current) || current === null) && (known(prior) || prior === null)) {
+        sectionChanges[field] = safeRatio(known(current) && known(prior) ? current - prior : null, prior);
+      }
+    });
+    changes[section] = sectionChanges;
+  });
+  return {
+    previousAvailable: true,
+    previous: {
+      identity: previous.identity || null,
+      metrics: previous.metrics
+    },
+    changes
+  };
+}
+
 function buildPmRows(projectRows) {
   const groups = new Map();
   projectRows.forEach(function (project) {
@@ -431,13 +460,15 @@ export function createAnalyticsEngine() {
         mode: selectedIds ? "selection" : "formal",
         selectedCount: sourceProjects.length,
         totalCount: allProjects.length,
-        persistable: !selectedIds && input.complete === true,
+        persistable: !selectedIds && input.complete === true && input.historyMode !== "interval",
         cumulativeAvailable,
+        historyMode: input.historyMode || "current",
         periodLabels: labels
       },
       complete: input.complete === true,
       cards,
       metrics,
+      history: createHistory(input, metrics),
       tables: {
         projects: projectRows,
         activeProjects: active.projects,

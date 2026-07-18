@@ -191,3 +191,32 @@ test("analytics engine treats successful empty sources as known zero", function 
   assert.equal(report.metrics.invoice.pending, 0);
   assert.equal(report.metrics.invoice.overdueCount, 0);
 });
+
+test("analytics engine compares the adjacent previous snapshot", function () {
+  const report = createAnalyticsEngine().buildReport(fixture({
+    previousReport: {
+      identity: { startDate: "2026-06-29", endDate: "2026-07-05", capturedAt: "2026-07-06T00:00:00Z" },
+      metrics: {
+        overview: { ac: 800, revenue: 2400 },
+        active: { inputMd: 1, inputCost: 100 }
+      }
+    }
+  }));
+
+  assert.equal(report.history.previousAvailable, true);
+  assert.equal(report.history.previous.identity.endDate, "2026-07-05");
+  assert.equal(report.history.changes.overview.ac, 0.25);
+  assert.equal(report.history.changes.overview.revenue, 0.25);
+  assert.equal(report.history.changes.active.inputMd, 1);
+});
+
+test("analytics engine keeps interval-only historical reports non-persistable", function () {
+  const report = createAnalyticsEngine().buildReport(fixture({
+    historyMode: "interval",
+    cumulativeAvailable: false
+  }));
+
+  assert.equal(report.scope.historyMode, "interval");
+  assert.equal(report.scope.persistable, false);
+  assert.equal(report.metrics.overview.ac, null);
+});

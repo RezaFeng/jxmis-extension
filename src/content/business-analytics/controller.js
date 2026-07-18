@@ -1,5 +1,5 @@
-import { createAnalyticsConfig, migrateStoredConfig } from "../../analytics/config.js";
-import { getDefaultDateRange } from "../../analytics/date-range.js";
+import { createAnalyticsConfig, createReportKey, migrateStoredConfig } from "../../analytics/config.js";
+import { getDefaultDateRange, getPreviousDateRange } from "../../analytics/date-range.js";
 import { normalizeDateRange } from "../../analytics/domain.js";
 import { DEFAULTS } from "../../shared/defaults.js";
 import { createAnalyticsEngine } from "../../analytics/engine.js";
@@ -11,23 +11,24 @@ export function createBusinessAnalyticsController(adapters) {
   const window = adapters.window;
   const chrome = adapters.chrome;
   let controller;
-  const engine = createAnalyticsEngine();
-  const navigation = createBusinessAnalyticsNavigation({
+  const engine = adapters.engine || createAnalyticsEngine();
+  const navigation = adapters.navigation || createBusinessAnalyticsNavigation({
     window,
     document: adapters.document
   });
-  const view = createBusinessAnalyticsReportView({
+  const view = adapters.view || createBusinessAnalyticsReportView({
     document: adapters.document,
     cssUrl: chrome.runtime.getURL("business-analytics.css"),
     onAction: function (action) { controller.handleAction(action); },
     onSelection: function (projectIds) { controller.selectProjects(projectIds); }
   });
-  let config;
+  let config = adapters.config;
   let activeRequestId = null;
   let lastQuery = null;
   let requestSequence = 0;
   let formalInput = null;
   let formalReport = null;
+  let previousSnapshot = null;
 
   function requestId(prefix) {
     requestSequence += 1;
@@ -48,6 +49,18 @@ export function createBusinessAnalyticsController(adapters) {
       payload
     ), "*");
     return id;
+  }
+
+  function sendBackground(type, payload) {
+    const message = Object.assign({}, payload, {
+      type,
+      requestId: requestId("repository")
+    });
+    return new Promise(function (resolve) {
+      chrome.runtime.sendMessage(message, function (response) {
+        resolve(response || { ok: false, error: chrome.runtime.lastError?.message || "background unavailable" });
+      });
+    });
   }
 
   async function loadConfig() {
@@ -74,15 +87,45 @@ export function createBusinessAnalyticsController(adapters) {
     });
   }
 
-  function query(forceRefresh) {
+  async function query(forceRefresh) {
     try {
+      const options = forceRefresh && typeof forceRefresh === "object"
+        ? forceRefresh
+        : { forceRefresh: forceRefresh === true };
       const values = view.getQuery();
       if (!values.departmentId) throw new Error("请选择部门");
       normalizeDateRange(values);
-      lastQuery = values;
+      lastQuery = Object.assign({}, values, {
+        cumulativeAvailable: options.historical ? false : undefined,
+        historyMode: options.historical ? "interval" : "current"
+      });
       view.renderState({ kind: "loading", message: "正在准备经营数据..." });
+      const reportKey = createReportKey(Object.assign({}, values, config));
+      if (options.forceRefresh !== true) {
+        const cached = await sendBackground(MESSAGE_TYPES.ANALYTICS_GET_LATEST, { reportKey });
+        const snapshot = cached.ok && cached.result;
+        if (snapshot && snapshot.report) {
+          formalInput = snapshot.input || null;
+          formalReport = snapshot.report;
+          view.renderReport(formalReport, { formal: true, cached: true });
+          view.renderState({
+            kind: "ready",
+            status: (options.historical ? "历史快照 " : "缓存 ") + snapshot.capturedAt,
+            message: "已显示最近完整快照，正在刷新经营数据..."
+          });
+          if (options.historical) return;
+        }
+      }
+      const previousRange = getPreviousDateRange(values);
+      const previousKey = createReportKey(Object.assign({}, values, previousRange, config));
+      const previous = await sendBackground(MESSAGE_TYPES.ANALYTICS_GET_LATEST, {
+        reportKey: previousKey
+      });
+      previousSnapshot = previous.ok ? previous.result : null;
       send(MESSAGE_TYPES.ANALYTICS_REQUEST, Object.assign({}, values, {
-        forceRefresh: forceRefresh === true,
+        forceRefresh: options.forceRefresh === true,
+        cumulativeAvailable: options.historical ? false : undefined,
+        historyMode: options.historical ? "interval" : "current",
         projectFilters: config.projectFilters,
         riskThresholds: config.riskThresholds,
         configVersion: config.configVersion,
@@ -141,6 +184,41 @@ export function createBusinessAnalyticsController(adapters) {
     view.renderReport(report, { formal: false });
   }
 
+  function persistFormalResult(input, report) {
+    const reportKey = createReportKey(input);
+    if (input.complete === true && report.scope.persistable) {
+      const snapshot = {
+        reportKey,
+        complete: true,
+        capturedAt: input.capturedAt,
+        departmentId: input.departmentId,
+        configVersion: input.configVersion,
+        policyVersion: input.policyVersion,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        input,
+        report,
+        metrics: report.metrics
+      };
+      sendBackground(MESSAGE_TYPES.ANALYTICS_SAVE_COMPLETE, { snapshot });
+      sendBackground(MESSAGE_TYPES.ANALYTICS_SAVE_QUERY_CACHE, {
+        entry: {
+          reportKey,
+          queryKey: reportKey,
+          capturedAt: input.capturedAt,
+          input
+        }
+      });
+      return;
+    }
+    if ((input.failedRequests || []).length > 0) {
+      sendBackground(MESSAGE_TYPES.ANALYTICS_SAVE_FAILED, {
+        reportKey,
+        descriptors: input.failedRequests
+      });
+    }
+  }
+
   function handlePageMessage(event) {
     const parsed = parseWindowMessage(event, {
       windowRef: window,
@@ -183,11 +261,15 @@ export function createBusinessAnalyticsController(adapters) {
         configVersion: config.configVersion,
         policyVersion: config.policyVersion,
         riskThresholds: config.riskThresholds,
+        previousReport: previousSnapshot && previousSnapshot.report,
+        cumulativeAvailable: lastQuery.cumulativeAvailable,
+        historyMode: lastQuery.historyMode,
         capturedAt: new Date().toISOString()
       });
       formalReport = engine.buildReport(formalInput);
       view.renderState({ kind: result.complete ? "ready" : "partial" });
       view.renderReport(formalReport, { formal: true });
+      persistFormalResult(formalInput, formalReport);
     }
   }
 
