@@ -3,6 +3,7 @@ import { getDefaultDateRange, getPreviousDateRange } from "../../analytics/date-
 import { normalizeDateRange } from "../../analytics/domain.js";
 import { DEFAULTS } from "../../shared/defaults.js";
 import { createAnalyticsEngine } from "../../analytics/engine.js";
+import { createOfflineReport, createOfflineReportFileName } from "../../analytics/html-export.js";
 import { MESSAGE_TYPES, SOURCES, createRequestMessage, parseWindowMessage } from "../../shared/protocol.js";
 import { createBusinessAnalyticsNavigation } from "./navigation.js";
 import { createBusinessAnalyticsReportView } from "./report-view.js";
@@ -31,6 +32,22 @@ export function createBusinessAnalyticsController(adapters) {
   let formalReport = null;
   let previousSnapshot = null;
   let availableDepartments = adapters.departments || [];
+  const now = adapters.now || function () { return new Date(); };
+
+  function download(value) {
+    if (adapters.download) {
+      adapters.download(value);
+      return;
+    }
+    const BlobCtor = adapters.Blob || window.Blob || globalThis.Blob;
+    const urlApi = adapters.URL || window.URL || globalThis.URL;
+    const url = urlApi.createObjectURL(new BlobCtor([value.html], { type: "text/html;charset=utf-8" }));
+    const anchor = adapters.document.createElement("a");
+    anchor.href = url;
+    anchor.download = value.fileName;
+    anchor.click();
+    urlApi.revokeObjectURL(url);
+  }
 
   function requestId(prefix) {
     requestSequence += 1;
@@ -92,6 +109,7 @@ export function createBusinessAnalyticsController(adapters) {
     formalInput = null;
     formalReport = report;
     view.renderReport(report, { formal: true, cached: true, company: true });
+    view.setExportEnabled?.(true);
     view.renderState({
       kind: report.company.complete ? "ready" : "partial",
       status: "部门覆盖 " + Math.round(report.company.coverage * availableDepartments.length) + "/" + availableDepartments.length,
@@ -127,6 +145,7 @@ export function createBusinessAnalyticsController(adapters) {
         cumulativeAvailable: options.historical ? false : undefined,
         historyMode: options.historical ? "interval" : "current"
       });
+      view.setExportEnabled?.(false);
       view.renderState({ kind: "loading", message: "正在准备经营数据..." });
       if (values.departmentId === "all" && options.forceRefresh !== true && availableDepartments.length > 0) {
         await loadCompanyReport(values);
@@ -140,6 +159,7 @@ export function createBusinessAnalyticsController(adapters) {
           formalInput = snapshot.input || null;
           formalReport = snapshot.report;
           view.renderReport(formalReport, { formal: true, cached: true });
+          view.setExportEnabled?.(true);
           view.renderState({
             kind: "ready",
             status: (options.historical ? "历史快照 " : "缓存 ") + snapshot.capturedAt,
@@ -192,6 +212,14 @@ export function createBusinessAnalyticsController(adapters) {
     }));
   }
 
+  function exportReport() {
+    if (!formalReport) return;
+    download({
+      html: createOfflineReport(formalReport),
+      fileName: createOfflineReportFileName(formalReport, now())
+    });
+  }
+
   function handleAction(action) {
     if (action === "close") {
       cancel();
@@ -202,6 +230,7 @@ export function createBusinessAnalyticsController(adapters) {
     if (action === "cancel") cancel();
     if (action === "settings") chrome.runtime.openOptionsPage();
     if (action === "retry-failed") retryFailed();
+    if (action === "export") exportReport();
   }
 
   function selectProjects(projectIds) {
@@ -308,6 +337,7 @@ export function createBusinessAnalyticsController(adapters) {
       formalReport = engine.buildReport(formalInput);
       view.renderState({ kind: result.complete ? "ready" : "partial" });
       view.renderReport(formalReport, { formal: true });
+      view.setExportEnabled?.(true);
       persistFormalResult(formalInput, formalReport);
     }
   }
@@ -329,6 +359,7 @@ export function createBusinessAnalyticsController(adapters) {
     open,
     query,
     retryFailed,
+    exportReport,
     cancel,
     handleAction,
     selectProjects,

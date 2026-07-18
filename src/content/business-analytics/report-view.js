@@ -532,6 +532,11 @@ export function createBusinessAnalyticsReportView(adapters) {
     elements.department.value = String(departmentId || "");
   }
 
+  function setExportEnabled(enabled) {
+    const button = elements?.root?.querySelector('[data-action="export"]');
+    if (button) button.disabled = !enabled;
+  }
+
   function getQuery() {
     return {
       departmentId: elements.department.value,
@@ -739,5 +744,15 @@ export function createBusinessAnalyticsReportView(adapters) {
     renderAnalyticsManagementSections(document, elements.summary, report, adapters.onAction);
   }
 
-  return { mount, setDateRange, setDepartments, setDepartment, getQuery, renderState, renderResult, renderReport };
+  return {
+    mount,
+    setDateRange,
+    setDepartments,
+    setDepartment,
+    setExportEnabled,
+    getQuery,
+    renderState,
+    renderResult,
+    renderReport
+  };
 }
