@@ -1,110 +1,99 @@
 <!-- generated-by: gsd-doc-writer -->
 # jxmis-extension
 
-`jxmis-extension` 是面向 JXMIS 已登录用户的 Manifest V3 Chrome 扩展，用于日报批量审批、周报批量报工、AI 周报总结、下周 WBS 计划填充和周报批量审核。
+`jxmis-extension` 是面向已登录 JXPMO 用户的 Manifest V3 Chrome 扩展，提供日报批量审批、周报批量报工、AI 周报总结、下周 WBS 计划填充、周报批量审核，以及部门/全部部门经营分析。
 
 ## 功能
 
-- 日报审核：查询未审批日报，按顺序提交审批并反馈进度。
-- 批量报工：支持“一键报工”“仅填周报”“仅填工时”“仅填计划”四种模式。
+- 日报审核：查询未审批日报，顺序提交并反馈进度。
+- 批量报工：支持一键报工、仅填周报、仅填工时和仅填计划。
 - 周报总结：通过 OpenAI-compatible 接口流式接收 reasoning、正文、完成和错误事件。
-- 下周计划：按 WBS、工作日、人员和工时规则生成下周执行行。
 - 周报审核：预览待审核项目，复查负责人和状态后逐条批复。
-- 项目负责人覆盖：可在 popup 中配置 `projectManager`，统一改写同源 JXMIS 请求。
+- 经营分析：在 JXPMO 项目模块左侧菜单增加“经营分析”，按部门和日期生成 35 项核心值、项目/PM/预算/周期执行/里程碑/回款明细、风险诊断和全部部门总览。
+- 本地历史：完整正式报告保存到 IndexedDB，支持相邻周期比较、缓存复用、仅重试失败项，以及分别清理缓存和历史。
+- 离线导出：导出自包含 HTML，可搜索、排序和折叠，不访问 JXPMO，也不包含认证信息或人员级日报。
 
-## 安装依赖
+## 安装与构建
 
-仓库使用 npm lockfile，首次安装或 CI 环境使用：
+首次安装依赖：
 
 ```bash
 npm ci
+npx playwright install chromium
 ```
 
-项目未在 `package.json` 中固定 Node.js 版本；当前构建与测试基于支持 ESM、`structuredClone` 和 `fs.watch` 递归监听的现代 Node.js。
+生成开发构建：
 
-## 构建和加载
+```bash
+npm run build
+```
 
-1. 生成开发构建：
+在 `chrome://extensions/` 启用开发者模式，选择“加载已解压的扩展程序”，加载仓库下的 `dist/`。源码更新后重新构建并刷新扩展。
 
-   ```bash
-   npm run build
-   ```
+扩展复用当前浏览器中的 JXPMO 登录会话，不读取或保存 `JSESSIONID`。会话过期时，经营分析显示“登录已失效”，用户重新登录后再查询或重试。
 
-2. 打开 `chrome://extensions/`，启用“开发者模式”。
-3. 点击“加载已解压的扩展程序”，选择仓库下的 `dist/`，不要选择仓库根目录或 `src/`。
-4. 更新源码后重新执行构建，并在扩展管理页点击刷新。
+## 使用经营分析
 
-扩展依赖当前 JXMIS 页面登录会话；会话过期时，同源自动化请求会失败。
+1. 点击扩展图标打开“JXPMO 扩展设置”。
+2. 配置项目属性、分类、一级状态、执行类型和预警阈值并保存。默认分类为 `J/Z`，状态为 `10/20/50`，其余维度不限。
+3. 打开 JXPMO 项目模块，在左侧项目菜单中点击“经营分析”。
+4. 选择部门、开始日期和结束日期，点击“查询”。默认日期为最近一个完整自然周。
+5. 部分来源失败时查看完整性诊断并使用“仅重试失败项”；正式完整报告可参与历史和全部部门聚合。
+6. 点击“导出HTML”生成当前正式全量口径的离线报告。项目表中的临时筛选或勾选不会改变导出、缓存和历史。
+
+Options 页还可配置 AI、项目经理覆盖，并分别清理经营分析原始缓存和全部历史。清理历史不可撤销。
 
 ## 常用命令
 
 | 命令 | 作用 |
 |---|---|
-| `npm run build` | 清理并生成可加载的开发产物到 `dist/` |
-| `npm run build:test` | 生成带 loopback fixture 权限的 `dist-test/` |
+| `npm run build` | 生成带 inline source map 的开发产物到 `dist/` |
+| `npm run build:test` | 生成仅测试使用、允许 loopback fixture 的 `dist-test/` |
 | `npm run dev` | 监听 `src/` 并持续重建 `dist/` |
-| `npm run test:unit` | 运行 Node 单元测试和工作流契约测试 |
+| `npm run test:unit` | 运行 Node 单元和集成测试 |
 | `npm run test:e2e` | 构建 `dist-test/` 并运行离线 Chromium 扩展测试 |
-| `npm run verify` | 串行执行生产构建、Node 测试和离线浏览器测试 |
+| `npm run verify` | 串行执行生产构建、Node 测试和浏览器 E2E |
 | `npm run package` | 生产压缩构建并生成 `release/jxmis-extension.zip` |
-
-首次运行浏览器测试前，如本机尚无 Playwright Chromium：
-
-```bash
-npx playwright install chromium
-```
 
 ## 源码结构
 
 ```text
 src/
-├── entries/       # 六个 esbuild 入口
-├── background/    # 配置、cache、模型请求和 SSE 生命周期
-├── content/       # 页面识别、控件、bundle 注入和消息桥
-├── page/          # 运行在 JXMIS MAIN world 的三类业务自动化
-├── popup/         # popup 静态资源和表单 runtime
-├── shared/        # 跨运行环境协议、默认值和 AI request body
-└── manifest.json  # 生产 manifest 源
+├── analytics/                       # 配置、日期、公式、风险、engine、HTML 导出
+├── background/                      # AI、配置与经营分析 IndexedDB repository
+├── content/                         # 页面识别、导航、Shadow DOM 视图和消息桥
+├── entries/                         # 7 个 esbuild 入口
+├── options/                         # 统一设置页
+├── page/                            # MAIN world 页面自动化与经营数据采集
+├── shared/                          # 跨运行环境协议和默认值
+└── manifest.json                    # 生产 manifest 源
 ```
 
-`src/` 是唯一运行时源码目录，`dist/` 是唯一 Chrome 加载目录。根目录不再保留旧的运行时脚本或 manifest。
+构建产物包括 `background.js`、`content.js`、`options.js`、三个原有 page bundle 和 `page-business-analytics.js`。详细拓扑见 [项目架构说明](docs/项目架构说明.md)。
 
-六个稳定 JS 产物为：
+## 数据与安全边界
 
-- `dist/background.js`
-- `dist/content.js`
-- `dist/popup.js`
-- `dist/page-daily-approval.js`
-- `dist/page-batch-work.js`
-- `dist/page-weekly-approval.js`
+- 经营数据只通过当前 JXPMO 同源接口读取，不写回 JXPMO。
+- 项目范围按组织树部门 ID 和本地配置过滤，不维护项目编码白名单。
+- 日报 `cost` 是投入成本来源，不使用固定单价兜底。
+- `subcontractAmount` 作为软件与服务合同金额；不下载基线或回款 Excel。
+- 缺失和失败值显示“未获取”，不会按 0 参与计算；合法空结果才按已知 0 处理。
+- 经营数据不会发送到 AI provider。API Key 只保存在 `chrome.storage.local`。
+- 离线 HTML 使用禁止外部网络的 CSP，并对远端文本转义。
 
-详细运行环境、消息流、module interface 和 adapter seam 见 [项目架构说明](docs/项目架构说明.md)。历史问题及落实状态见 [项目架构优化建议](docs/项目架构优化建议.md)。
+字段、公式和完整性规则见 [经营分析数据字典](docs/经营分析数据字典.md)。
 
-## Popup 配置
+## 测试与验收
 
-点击扩展图标可配置：
+截至 2026-07-18，`npm run verify` 通过 180 个 Node 单元/集成测试和 7 个离线 Chromium E2E。E2E 覆盖原三类自动化、Options、项目菜单、完整报告、分页、部门切换、部分失败、会话失效、缓存、全部部门和 HTML 下载，并断言不请求真实 `jxmis.cyberwing.cn`。
 
-- 模型厂商：DeepSeek、ModelScope 或 OpenAI-compatible。
-- 模型 URL、API Key 和模型名。
-- 思考模式开关。
-- 周报总结 System Prompt。
-- 项目经理 ID 覆盖值。
+离线测试不登录真实系统，也不代表业务数据对账完成。上线前必须按 [经营分析 UAT](docs/经营分析UAT.md) 完成至少 3 个部门、2 个完整自然周的只读双跑，并由产品负责人确认差异。
 
-配置保存在 `chrome.storage.local`。模型列表通过 `{baseUrl}/models` 获取，周报总结通过 `{baseUrl}/chat/completions` 请求。
+## 旧工具迁移与归档
 
-## 支持页面
+扩展运行时不依赖旧 `weekly_report_toolkit_V3.1`、Node/Python 报告流水线、Playwright 抓取、Excel 或 `output/` 中间文件。旧工具仅作为双跑对账基线，禁止把其中的 Cookie、`JSESSIONID`、项目白名单或生成文件复制进本仓库。
 
-- JXMIS 日报审核页面。
-- 路径包含 `/project/WkReportService/id/` 的周报填报页面。
-- hash 包含 `/project/WkReportService/wkreportListPage` 的周报审核列表页面。
-
-生产 content scripts 仅匹配 `https://jxmis.cyberwing.cn/jxpmo/*`。loopback 权限只存在于 `dist-test/manifest.json`，不会进入 `dist/` 或发布 ZIP。
-
-## 测试边界
-
-`npm run verify` 当前覆盖 97 个 Node 单元/集成测试和 3 个离线 Chromium 扩展测试。浏览器 fixture 验证扩展加载、页面 matcher、单 page bundle 注入、按钮和状态、fake `WkFormJS.saveAll()`、AI success/error 生命周期，并断言不会请求真实 JXMIS 域名。
-
-自动化测试不读取账号、Cookie 或真实 JXMIS 数据，也不会执行真实审批和保存。真实环境的日报审批、四种报工模式、保存顺序、周报审核、popup 和项目负责人覆盖仍须按 [项目架构说明](docs/项目架构说明.md) 中的清单人工验证。
+在双跑表未完成、差异未确认或产品负责人未签字前，不得删除或归档旧工具。验收通过后将旧仓库标记为只读归档，保留对账证据和版本信息，不再用于生产出报。
 
 ## 发布
 
@@ -113,4 +102,4 @@ npm run verify
 npm run package
 ```
 
-发布包位于 `release/jxmis-extension.zip`，ZIP 根目录直接包含 manifest.json 和全部六个 JS 入口。`dist/`、`dist-test/`、`release/`、Playwright trace 和报告均为生成物，不提交 Git。
+发布包位于 `release/jxmis-extension.zip`。`dist/`、`dist-test/`、`release/` 和 Playwright 报告均为生成物，不提交 Git。
