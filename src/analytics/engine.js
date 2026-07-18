@@ -523,6 +523,10 @@ export function createAnalyticsEngine() {
         candidateCount: input.formalScope && input.formalScope.candidateProjectCount !== undefined
           ? input.formalScope.candidateProjectCount
           : allProjects.length,
+        onlyCurrentPeriodInput: input.formalScope
+          ? input.formalScope.onlyCurrentPeriodInput === true
+          : false,
+        formalScopeStatus: input.formalScope && input.formalScope.status || "notApplicable",
         periodLabels: labels
       },
       complete: input.complete === true,

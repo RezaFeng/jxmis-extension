@@ -4,7 +4,9 @@ import { createAnalyticsEngine } from "../../src/analytics/engine.js";
 import {
   filterProjectRows,
   renderAnalyticsManagementSections,
-  renderAnalyticsOperationalSections
+  renderAnalyticsOperationalSections,
+  renderAnalyticsStatusSection,
+  renderPeriodComparisonSection
 } from "../../src/content/business-analytics/report-view.js";
 
 const projects = [{ projectId: "P1", projectNo: "JX-1", projectName: "项目一", currStatus: "20", projectManagerName: "经理甲", inputMd: 1, risks: [{ type: "lowCpi" }] },
@@ -82,6 +84,7 @@ function analyticsInput(overrides = {}) {
     departmentName: "交付一部",
     startDate: "2026-07-06",
     endDate: "2026-07-12",
+    capturedAt: "2026-07-13T08:00:00.000Z",
     complete: true,
     projects: [{
       projectId: "P1",
@@ -100,9 +103,32 @@ function analyticsInput(overrides = {}) {
     milestonesByProject: { P1: [] },
     invoicesByProject: { P1: [] },
     nextPlannedHoursByProject: { P1: 16 },
+    formalScope: {
+      candidateProjectCount: 2,
+      formalProjectCount: 1,
+      onlyCurrentPeriodInput: true,
+      status: "success"
+    },
+    coverage: 1,
     diagnostics: { invoiceSupplement: {} }
   }, overrides);
 }
+
+test("analytics view shows live scope status and adjacent period comparisons", function () {
+  const report = createAnalyticsEngine().buildReport(analyticsInput());
+  const host = new FakeElement("div");
+  renderAnalyticsStatusSection(fakeDocument, host, report);
+  renderPeriodComparisonSection(fakeDocument, host, report);
+  assert.match(host.textContent, /周期 2026-07-06 至 2026-07-12/);
+  assert.match(host.textContent, /正式范围 1\/2/);
+  assert.match(host.textContent, /仅本期日报投入项目/);
+  assert.match(host.textContent, /来源覆盖率 100%/);
+  assert.match(host.textContent, /本期经营与上期比较/);
+  assert.match(host.textContent, /投入与产出指标本周上周变化环比/);
+  assert.match(host.textContent, /里程碑/);
+  assert.match(host.textContent, /回款/);
+  assert.doesNotMatch(host.textContent, /无法历史回溯/);
+});
 
 test("active projects render 15 cards, period labels, table and unavailable cells", function () {
   const report = createAnalyticsEngine().buildReport(analyticsInput({
@@ -283,6 +309,15 @@ test("data diagnostics renders coverage failures and retry action", function () 
     failedRequests: [{ source: "wbs", projectId: "P1", error: "HTTP 500" }],
     diagnostics: {
       historicalDepartments: [{ projectDept: "OLD", projectDeptName: "历史部门", projectCount: 2 }],
+      enteredProjectIds: ["P1"],
+      exitedProjectIds: [],
+      rangeChangeProjects: [{
+        projectId: "P1",
+        projectNo: "JX-1",
+        projectName: "项目一",
+        currentInputMd: 1,
+        previousInputMd: 0
+      }],
       invoiceSupplement: { unmappedCount: 1, unmappedAmount: 100000, ambiguousCount: 0, ambiguousAmount: 0 },
       replacedWeeklyReportIds: ["WK-OLD"]
     }
@@ -295,6 +330,7 @@ test("data diagnostics renders coverage failures and retry action", function () 
   const section = findByRole(host, "data-diagnostics");
   assert.match(section.textContent, /来源覆盖率75%/);
   assert.match(section.textContent, /wbsP1HTTP 500/);
+  assert.match(findByRole(section, "range-changes").textContent, /本期进入JX-1项目一10/);
   assert.match(findByRole(section, "historical-departments").textContent, /OLD历史部门2/);
   assert.match(section.textContent, /未映射回款1 笔，10 万元/);
   assert.match(section.textContent, /替代周报WK-OLD/);

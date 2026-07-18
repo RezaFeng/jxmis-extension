@@ -149,8 +149,8 @@ test("company analytics view shows department coverage and drills down", functio
 
   const section = findByRole(host, "company-analytics");
   assert.match(section.textContent, /全部部门总览部门覆盖 2\/2/);
-  assert.match(section.textContent, /一部完整1/);
-  assert.match(section.textContent, /二部完整0/);
+  assert.match(section.textContent, /一部可用1/);
+  assert.match(section.textContent, /二部可用0/);
   findByRole(section, "department-D1").click();
   assert.deepEqual(selected, ["D1"]);
 });

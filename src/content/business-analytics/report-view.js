@@ -92,6 +92,116 @@ function createOperationalSection(document, title, role) {
   return section;
 }
 
+const COMPARISON_GROUPS = Object.freeze([
+  Object.freeze({
+    key: "active",
+    title: "投入与产出",
+    fields: Object.freeze([
+      ["projectCount", "投入项目数", "number"],
+      ["inputMd", "投入人天", "number"],
+      ["inputCost", "投入成本", "money"],
+      ["monthSPI", "结束月 SPI", "ratio"],
+      ["periodPV", "区间 PV", "money"],
+      ["periodEV", "区间 EV", "money"],
+      ["periodSPI", "区间 SPI", "ratio"],
+      ["serviceEV", "区间产服 EV", "money"],
+      ["periodCPI", "区间 CPI", "ratio"],
+      ["periodCCPI", "区间 CCPI", "ratio"],
+      ["periodPerCapita", "区间人均产值", "money"],
+      ["nextPeriodPlannedMd", "下期计划人天", "number"]
+    ])
+  }),
+  Object.freeze({
+    key: "milestone",
+    title: "里程碑",
+    fields: Object.freeze([
+      ["plannedCount", "应完成", "number"],
+      ["completedCount", "已完成", "number"],
+      ["completionRate", "完成率", "percent"],
+      ["overdueCount", "逾期", "number"],
+      ["upcomingCount", "未来 7 天", "number"]
+    ])
+  }),
+  Object.freeze({
+    key: "invoice",
+    title: "回款",
+    fields: Object.freeze([
+      ["monthPlan", "结束月计划", "money"],
+      ["received", "实收", "money"],
+      ["pending", "待回", "money"],
+      ["overdueCount", "逾期笔数", "number"]
+    ])
+  })
+]);
+
+export function renderAnalyticsStatusSection(document, container, report) {
+  const section = document.createElement("section");
+  section.className = "report-status-band";
+  section.dataset.role = "report-status";
+  const formalCount = report.scope.formalCount;
+  const candidateCount = report.scope.candidateCount;
+  const formal = formalCount === null || formalCount === undefined
+    ? "未获取/" + candidateCount
+    : formalCount + "/" + candidateCount;
+  const coverage = report.tables.diagnostics.coverage;
+  const queryTime = report.identity.capturedAt
+    ? String(report.identity.capturedAt).replace("T", " ").replace(/\.\d{3}Z$/, "Z")
+    : "未获取";
+  section.textContent = [
+    "周期 " + report.identity.startDate + " 至 " + report.identity.endDate,
+    "正式范围 " + formal,
+    report.scope.onlyCurrentPeriodInput ? "仅本期日报投入项目" : "全部候选项目",
+    "来源覆盖率 " + (coverage === null || coverage === undefined
+      ? "未获取"
+      : Math.round(coverage * 100) + "%"),
+    "查询时间 " + queryTime
+  ].join(" · ");
+  container.appendChild(section);
+}
+
+export function renderPeriodComparisonSection(document, container, report) {
+  const section = createOperationalSection(document, "本期经营与上期比较", "period-comparison");
+  const grid = document.createElement("div");
+  grid.className = "comparison-grid";
+  COMPARISON_GROUPS.forEach(function (definition) {
+    const group = document.createElement("div");
+    group.className = "comparison-group";
+    const title = document.createElement("h3");
+    title.textContent = definition.title;
+    group.appendChild(title);
+    const rows = definition.fields.map(function ([field, label, format]) {
+      return { label, format, comparison: report.metrics.comparison[definition.key][field] };
+    });
+    appendOperationalTable(document, group, [
+      { key: "label", label: "指标" },
+      {
+        label: report.scope.periodLabels.current,
+        value: function (row) {
+          return formatOperationalValue(row.comparison.current, row.format);
+        }
+      },
+      {
+        label: report.scope.periodLabels.previous,
+        value: function (row) {
+          return formatOperationalValue(row.comparison.previous, row.format);
+        }
+      },
+      {
+        label: "变化",
+        value: function (row) { return formatOperationalValue(row.comparison.delta, row.format); }
+      },
+      {
+        label: "环比",
+        value: function (row) { return formatOperationalValue(row.comparison.changeRate, "percent"); }
+      }
+    ], rows, "无期间比较数据");
+    group.dataset.comparisonGroup = definition.key;
+    grid.appendChild(group);
+  });
+  section.appendChild(grid);
+  container.appendChild(section);
+}
+
 function appendOperationalList(document, container, title, role, columns, rows, emptyLabel) {
   const group = document.createElement("div");
   group.className = "operational-list";
@@ -344,7 +454,18 @@ export function renderAnalyticsManagementSections(document, container, report, o
     { key: "projectId", label: "项目ID" },
     { key: "error", label: "错误" }
   ], meta.failedRequests, "无失败项");
-  diagnosticList(document, diagnostics, "历史部门", "historical-departments", [
+  const entered = new Set(meta.enteredProjectIds || []);
+  diagnosticList(document, diagnostics, "投入范围变化", "range-changes", [
+    {
+      label: "变化",
+      value: function (row) { return entered.has(String(row.projectId)) ? "本期进入" : "本期退出"; }
+    },
+    { key: "projectNo", label: "编码" },
+    { key: "projectName", label: "项目名称" },
+    { key: "currentInputMd", label: "本期人天", format: "number" },
+    { key: "previousInputMd", label: "上期人天", format: "number" }
+  ], meta.rangeChangeProjects, "本期与上期投入范围一致");
+  diagnosticList(document, diagnostics, "非当前组织部门", "historical-departments", [
     { key: "projectDept", label: "部门ID" },
     { key: "projectDeptName", label: "部门名称" },
     { key: "projectCount", label: "项目数", format: "number" }
@@ -381,7 +502,7 @@ export function renderCompanyAnalyticsSection(document, container, report, onDep
   const table = document.createElement("table");
   const thead = document.createElement("thead");
   const header = document.createElement("tr");
-  ["部门", "状态", "项目数", "最后更新时间", "收入", "AC", "CPI", "需关注项目", "有投入项目", "逾期里程碑", "逾期回款"]
+  ["部门", "状态", "项目数", "查询时间", "收入", "AC", "CPI", "需关注项目", "有投入项目", "逾期里程碑", "逾期回款"]
     .forEach(function (label) {
       const th = document.createElement("th");
       th.textContent = label;
@@ -402,7 +523,7 @@ export function renderCompanyAnalyticsSection(document, container, report, onDep
     tr.appendChild(name);
     const metrics = department.metrics;
     const values = [
-      department.complete ? "完整" : "缺失",
+      department.complete ? "可用" : "部分失败",
       department.projectCount,
       department.capturedAt,
       metrics?.overview?.revenue,
@@ -426,26 +547,6 @@ export function renderCompanyAnalyticsSection(document, container, report, onDep
   wrap.appendChild(table);
   section.appendChild(wrap);
   container.appendChild(section);
-}
-
-function replaceAnalyticsOperationalSections(document, container, report) {
-  const replacementHost = document.createElement("div");
-  renderAnalyticsOperationalSections(document, replacementHost, report);
-  ["active-projects", "milestone-view", "invoice-view"].forEach(function (role) {
-    const current = container.querySelector('[data-role="' + role + '"]');
-    const replacement = replacementHost.querySelector('[data-role="' + role + '"]');
-    if (current && replacement) current.replaceWith(replacement);
-  });
-}
-
-function replaceAnalyticsManagementSections(document, container, report, onAction) {
-  const replacementHost = document.createElement("div");
-  renderAnalyticsManagementSections(document, replacementHost, report, onAction);
-  ["pm-analytics", "budget-health", "weekly-execution", "data-diagnostics"].forEach(function (role) {
-    const current = container.querySelector('[data-role="' + role + '"]');
-    const replacement = replacementHost.querySelector('[data-role="' + role + '"]');
-    if (current && replacement) current.replaceWith(replacement);
-  });
 }
 
 export function createBusinessAnalyticsReportView(adapters) {
@@ -575,7 +676,7 @@ export function createBusinessAnalyticsReportView(adapters) {
   }
 
   function formatValue(value, format) {
-    if (value === null || value === undefined) return "无法历史回溯";
+    if (value === null || value === undefined) return "未获取";
     if (format === "money") return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(value / 10000) + " 万元";
     if (format === "percent") return new Intl.NumberFormat("zh-CN", { style: "percent", maximumFractionDigits: 1 }).format(value);
     if (format === "ratio") return Number(value).toFixed(2);
@@ -619,7 +720,7 @@ export function createBusinessAnalyticsReportView(adapters) {
       <select data-filter="pm" aria-label="项目经理"><option value="">全部项目经理</option></select>
       <select data-filter="activity" aria-label="投入状态"><option value="">全部投入状态</option><option value="yes">有投入</option><option value="no">无投入</option></select>
       <select data-filter="risk" aria-label="风险"><option value="">全部风险</option></select>
-      <button type="button" data-action="restore-selection">恢复部门全量</button>
+      <button type="button" data-action="restore-selection">恢复正式范围</button>
       <span data-role="selection-count"></span>`;
     const status = controls.querySelector('[data-filter="status"]');
     const pm = controls.querySelector('[data-filter="pm"]');
@@ -647,7 +748,9 @@ export function createBusinessAnalyticsReportView(adapters) {
     }
     function notify(ids) {
       selectedIds = new Set(ids);
-      count.textContent = ids.length === projects.length ? "部门全量 " + projects.length : "已选项目分析 " + ids.length + "/" + projects.length;
+      count.textContent = ids.length === projects.length
+        ? "正式范围 " + projects.length
+        : "临时选择 " + ids.length + "/" + projects.length;
       adapters.onSelection(ids.length === projects.length ? null : ids);
     }
     function draw(rows) {
@@ -686,8 +789,8 @@ export function createBusinessAnalyticsReportView(adapters) {
     });
     draw(projects);
     count.textContent = report.scope.mode === "selection"
-      ? "已选项目分析 " + report.scope.selectedCount + "/" + projects.length
-      : "部门全量 " + projects.length;
+      ? "临时选择 " + report.scope.selectedCount + "/" + projects.length
+      : "正式范围 " + projects.length;
   }
 
   function renderReport(report, options = {}) {
@@ -697,52 +800,78 @@ export function createBusinessAnalyticsReportView(adapters) {
     }
     if (!formalReport) return;
     if (!options.formal) {
-      const executiveText = elements.summary.querySelector('[data-role="executive-text"]');
-      const cardHost = elements.summary.querySelector('[data-role="overview-cards"]');
-      const count = elements.summary.querySelector('[data-role="selection-count"]');
-      if (executiveText && cardHost) {
-        executiveText.textContent = report.metrics.risks.attentionProjectCount > 0
-          ? report.metrics.risks.attentionProjectCount + " 个项目需要关注，共 " + report.metrics.risks.itemCount + " 项风险。"
-          : "当前口径未命中经营风险。";
-        cardHost.textContent = "";
-        appendCardGrid(cardHost, report.cards.overview);
-        if (count) count.textContent = "已选项目分析 " + report.scope.selectedCount + "/" + formalReport.tables.projects.length;
-        replaceAnalyticsOperationalSections(document, elements.summary, report);
-        replaceAnalyticsManagementSections(document, elements.summary, report, adapters.onAction);
-        return;
+      const banner = elements.summary.querySelector('[data-role="temporary-selection"]');
+      if (banner) {
+        const temporary = report.scope.mode === "selection";
+        banner.hidden = !temporary;
+        banner.textContent = temporary
+          ? "临时选择 " + report.scope.selectedCount + "/" + formalReport.tables.projects.length +
+            "，顶部正式统计保持不变。"
+          : "";
       }
+      return;
     }
     elements.summary.hidden = false;
     elements.summary.textContent = "";
+    renderAnalyticsStatusSection(document, elements.summary, report);
     const executive = document.createElement("section");
-    renderCompanyAnalyticsSection(document, elements.summary, report, adapters.onDepartment);
     executive.className = "report-section executive";
     const executiveTitle = document.createElement("h2");
-    executiveTitle.textContent = "本期例会速览与风险预警";
+    executiveTitle.textContent = "经营速览";
     const executiveText = document.createElement("p");
     executiveText.dataset.role = "executive-text";
-    executiveText.textContent = report.metrics.risks.attentionProjectCount > 0
-      ? report.metrics.risks.attentionProjectCount + " 个项目需要关注，共 " + report.metrics.risks.itemCount + " 项风险。"
-      : "当前口径未命中经营风险。";
+    executiveText.textContent = [
+      formatValue(report.metrics.risks.attentionProjectCount, "number") + " 个风险项目",
+      formatValue(report.metrics.milestone.overdueCount, "number") + " 个逾期里程碑",
+      formatValue(report.metrics.invoice.overdueCount, "number") + " 笔逾期回款",
+      formatValue(report.metrics.risks.itemCount, "number") + " 项待跟进"
+    ].join(" · ");
     executive.append(executiveTitle, executiveText);
     const overview = document.createElement("section");
     overview.className = "report-section";
+    overview.dataset.role = "realtime-overview";
     const title = document.createElement("h2");
-    title.textContent = report.company ? "公司经营概览" : "部门经营概览";
+    title.textContent = "实时累计经营概览";
     overview.appendChild(title);
     const overviewCards = document.createElement("div");
     overviewCards.dataset.role = "overview-cards";
     overview.appendChild(overviewCards);
     appendCardGrid(overviewCards, report.cards.overview);
+    const company = document.createElement("div");
+    renderCompanyAnalyticsSection(document, company, report, adapters.onDepartment);
+    const comparison = document.createElement("div");
+    renderPeriodComparisonSection(document, comparison, report);
     const projects = document.createElement("section");
     projects.className = "report-section";
+    projects.dataset.role = "project-details";
     const projectTitle = document.createElement("h2");
     projectTitle.textContent = "项目明细";
     projects.appendChild(projectTitle);
+    const temporary = document.createElement("p");
+    temporary.className = "temporary-selection";
+    temporary.dataset.role = "temporary-selection";
+    temporary.hidden = true;
+    projects.appendChild(temporary);
     renderProjectTable(projects, report);
-    elements.summary.append(executive, overview, projects);
-    renderAnalyticsOperationalSections(document, elements.summary, report);
-    renderAnalyticsManagementSections(document, elements.summary, report, adapters.onAction);
+    const operational = document.createElement("div");
+    renderAnalyticsOperationalSections(document, operational, report);
+    const management = document.createElement("div");
+    renderAnalyticsManagementSections(document, management, report, adapters.onAction);
+    const byRole = function (container, role) {
+      return [...container.children].find(function (child) { return child.dataset.role === role; });
+    };
+    elements.summary.append(executive, overview);
+    [...company.children].forEach(function (child) { elements.summary.appendChild(child); });
+    [...comparison.children].forEach(function (child) { elements.summary.appendChild(child); });
+    elements.summary.appendChild(projects);
+    ["milestone-view", "invoice-view"].forEach(function (role) {
+      const section = byRole(operational, role);
+      if (section) elements.summary.appendChild(section);
+    });
+    ["pm-analytics", "budget-health", "weekly-execution", "data-diagnostics"].forEach(function (role) {
+      const section = byRole(management, role);
+      if (section) elements.summary.appendChild(section);
+    });
   }
 
   return {
