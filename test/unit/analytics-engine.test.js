@@ -1,0 +1,134 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createAnalyticsEngine } from "../../src/analytics/engine.js";
+import { evaluateProjectRisks, RISK_TYPES, summarizeRisks } from "../../src/analytics/risks.js";
+
+function fixture(overrides = {}) {
+  return Object.assign({
+    departmentId: "D1",
+    departmentName: "交付一部",
+    configVersion: "config-v1",
+    policyVersion: "policy-v1",
+    startDate: "2026-07-06",
+    endDate: "2026-07-12",
+    capturedAt: "2026-07-13T00:00:00.000Z",
+    complete: true,
+    projects: [{
+      projectId: "P1",
+      projectNo: "JX-1",
+      projectName: "项目一",
+      projectManagerName: "经理甲",
+      subcontractAmount: 1000,
+      estiExeuCost: 500,
+      realExeuCost: 600,
+      realWorkload: 261,
+      planCompleteSchedule: 50
+    }, {
+      projectId: "P2",
+      projectNo: "JX-2",
+      projectName: "项目二",
+      projectManagerName: "经理乙",
+      subcontractAmount: 2000,
+      estiExeuCost: 1000,
+      realExeuCost: 400,
+      realWorkload: 261,
+      planCompleteSchedule: 25
+    }],
+    dailyByProject: {
+      P1: [{ realHour: 8, cost: 100 }],
+      P2: [{ realHour: 8, cost: 100 }]
+    },
+    previousDailyByProject: {
+      P1: [{ realHour: 4, cost: 50 }],
+      P2: [{ realHour: 8, cost: 100 }]
+    },
+    wbsByProject: {
+      P1: [{ costLevel: 100, planEndTime: "2026-07-08", actualEndTime: "2026-07-20" }],
+      P2: [{ costLevel: 200, planEndTime: "2026-07-09", actualEndTime: "2026-07-10" }]
+    },
+    milestonesByProject: {
+      P1: [{ planEndTime: "2026-07-05", confirmStatus: "1", nodeName: "上线" }],
+      P2: [{ planEndTime: "2026-07-11", confirmStatus: "2", nodeName: "验收" }]
+    },
+    invoicesByProject: {
+      P1: [{ planDate: "2026-07-01", planAmount: 100, receivedAmount: 0, pendingAmount: 100 }],
+      P2: [{ planDate: "2026-07-10", planAmount: 200, receivedAmount: 100, pendingAmount: 100 }]
+    },
+    nextPlannedHoursByProject: { P1: 8, P2: 16 }
+  }, overrides);
+}
+
+test("analytics risks classify thresholds and deduplicate attention projects", function () {
+  const first = {
+    projectId: "P1",
+    perCapita: 100,
+    cpi: 0.5,
+    ac: 120,
+    bac: 100,
+    periodSPI: 0.4,
+    inputMd: 1,
+    periodEV: 0,
+    remainingBudget: 0,
+    burnRatePerDay: 10,
+    overdueMilestoneCount: 1,
+    overdueInvoiceCount: 1
+  };
+  first.risks = evaluateProjectRisks(first);
+  assert.equal(first.risks.some(function (item) { return item.type === RISK_TYPES.SPI_CRITICAL; }), true);
+  assert.equal(first.risks.some(function (item) { return item.type === RISK_TYPES.SPI_WARN; }), false);
+  assert.equal(first.risks.some(function (item) { return item.type === RISK_TYPES.SEVERE_OVERRUN; }), true);
+  const summary = summarizeRisks([first]);
+  assert.equal(summary.attentionProjectCount, 1);
+  assert.ok(summary.itemCount > 1);
+});
+
+test("analytics engine outputs 34 cards and 35 values", function () {
+  const report = createAnalyticsEngine().buildReport(fixture());
+  const cards = Object.values(report.cards).flat();
+  const values = cards.flatMap(function (item) { return item.values; });
+  assert.equal(cards.length, 34);
+  assert.equal(values.length, 35);
+  assert.equal(report.scope.periodLabels.current, "本周");
+  assert.equal(report.scope.persistable, true);
+  assert.equal(report.metrics.overview.cpi, 0.5);
+  assert.equal(report.metrics.risks.attentionProjectCount, 2);
+  assert.equal(report.metrics.milestone.overdueCount, 1);
+  assert.equal(report.metrics.invoice.monthPlan, 300);
+  assert.equal(report.metrics.invoice.pending, 200);
+  assert.equal(report.tables.projectManagers.length, 2);
+  assert.equal(report.tables.budgetHealth[0].periodCost, 100);
+});
+
+test("analytics engine keeps future WBS completion out of report cutoff", function () {
+  const report = createAnalyticsEngine().buildReport(fixture());
+  const first = report.tables.projects.find(function (project) { return project.projectId === "P1"; });
+  assert.equal(first.periodEV, 0);
+  assert.equal(first.totalSPI, 0);
+  assert.equal(first.risks.some(function (item) {
+    return item.type === RISK_TYPES.HIGH_INPUT_ZERO_OUTPUT;
+  }), true);
+});
+
+test("analytics engine marks temporary project selection as non-persistable", function () {
+  const report = createAnalyticsEngine().buildReport(fixture({ selectedProjectIds: ["P2"] }));
+  assert.equal(report.scope.mode, "selection");
+  assert.equal(report.scope.selectedCount, 1);
+  assert.equal(report.scope.totalCount, 2);
+  assert.equal(report.scope.persistable, false);
+  assert.equal(report.metrics.overview.projectCount, 1);
+  assert.deepEqual(report.tables.projects.map(function (project) { return project.projectId; }), ["P2"]);
+});
+
+test("analytics engine marks historical cumulative metrics unavailable", function () {
+  const report = createAnalyticsEngine().buildReport(fixture({
+    complete: false,
+    cumulativeAvailable: false,
+    startDate: "2026-06-01",
+    endDate: "2026-06-03"
+  }));
+  assert.equal(report.scope.cumulativeAvailable, false);
+  assert.equal(report.scope.periodLabels.current, "本期");
+  assert.equal(report.metrics.overview.ac, null);
+  const acCard = report.cards.overview.find(function (item) { return item.id === "ac"; });
+  assert.equal(acCard.values[0].status, "unavailable");
+});
