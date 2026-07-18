@@ -112,3 +112,53 @@ test("content runtime starts without matching a page and posts initial manager c
   assert.equal(typeof windowListeners.message, "function");
   assert.equal(typeof windowListeners.hashchange, "function");
 });
+
+test("business analytics content loads once on the specified project home page", async function () {
+  const loaded = [];
+  let ensured = 0;
+  const listeners = {};
+  const windowRef = {
+    location: {
+      href: "https://jxmis.cyberwing.cn/jxpmo/index/frame",
+      hash: "#!/jxpmo/project/ProjectInfoService/projectinDedaultHomePage"
+    },
+    addEventListener: function (type, listener) { listeners[type] = listener; },
+    postMessage: function () {},
+    top: null,
+    self: null
+  };
+  windowRef.top = windowRef;
+  windowRef.self = windowRef;
+  const controller = {
+    ensureNavigation: function () { ensured += 1; },
+    syncLocation: function () {}
+  };
+  class Observer { observe() {} }
+  const runtime = startContentRuntime({
+    window: windowRef,
+    document: {
+      documentElement: {},
+      getElementById: function () { return null; },
+      querySelector: function () { return null; }
+    },
+    chrome: {
+      runtime: { sendMessage: function () {}, connect: function () { return createPort(); } },
+      storage: {
+        local: { get: function (_defaults, callback) { callback({ projectManager: "" }); } },
+        onChanged: createEvent()
+      }
+    },
+    MutationObserver: Observer,
+    businessAnalyticsController: controller,
+    pageScriptLoader: async function (id, fileName) { loaded.push({ id, fileName }); }
+  });
+  await new Promise(function (resolve) { setTimeout(resolve, 0); });
+  runtime.ensureAutomation();
+  await new Promise(function (resolve) { setTimeout(resolve, 0); });
+  assert.deepEqual(loaded, [{
+    id: "cw-business-analytics-page-script",
+    fileName: "page-business-analytics.js"
+  }]);
+  assert.ok(ensured >= 1);
+  assert.equal(typeof listeners.hashchange, "function");
+});

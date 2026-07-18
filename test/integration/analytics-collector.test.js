@@ -102,3 +102,18 @@ test("analytics collector retries only failed descriptors", async function () {
   assert.equal(retried.failedRequests.length, 0);
   assert.equal(retried.wbsByProject.P1.length, 1);
 });
+
+test("analytics collector scope-only mode does not fetch business details", async function () {
+  const data = createData({ count: 2 });
+  let detailCalls = 0;
+  ["fetchDailyRows", "fetchMonthlyInvoiceSupplement", "fetchWbs", "fetchMilestones", "fetchWeeklyReports", "fetchProjectInvoices"]
+    .forEach(function (name) {
+      data[name] = async function () { detailCalls += 1; return { status: "empty", rows: [] }; };
+    });
+  const result = await createAnalyticsCollector({ data }).collect(
+    Object.assign({}, request(), { scopeOnly: true })
+  );
+  assert.equal(result.scopeOnly, true);
+  assert.equal(result.scope.departments.length, 1);
+  assert.equal(detailCalls, 0);
+});

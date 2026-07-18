@@ -3,6 +3,7 @@ import { createAutomationRegistry } from "./automation-registry.js";
 import { createPageScriptLoader } from "./page-script-loader.js";
 import { createStatusControl } from "./status-control.js";
 import { getCacheResultType, MESSAGE_TYPES, SOURCES } from "../shared/protocol.js";
+import { createBusinessAnalyticsController } from "./business-analytics/controller.js";
 
 export function startContentRuntime(adapters) {
   const window = adapters.window;
@@ -85,7 +86,9 @@ export function startContentRuntime(adapters) {
     }
   };
   const statusControl = createStatusControl(document, STATUS_CONTROLS);
-  const pageScriptLoader = createPageScriptLoader(document, chrome);
+  const pageScriptLoader = adapters.pageScriptLoader || createPageScriptLoader(document, chrome);
+  const businessAnalyticsController = adapters.businessAnalyticsController ||
+    createBusinessAnalyticsController({ window, document, chrome });
 
   const AUTOMATIONS = [
     {
@@ -120,6 +123,12 @@ export function startContentRuntime(adapters) {
         }
       ],
       ensurePanel: ensureWeeklyApprovalPanel
+    },
+    {
+      name: "businessAnalytics",
+      matcher: isBusinessAnalyticsPage,
+      scripts: [{ id: "cw-business-analytics-page-script", fileName: "page-business-analytics.js" }],
+      ensurePanel: businessAnalyticsController.ensureNavigation
     }
   ];
 
@@ -190,6 +199,7 @@ export function startContentRuntime(adapters) {
   );
 
   function ensureAutomation() {
+    businessAnalyticsController.syncLocation();
     automationRegistry.ensure();
   }
 
@@ -211,6 +221,11 @@ export function startContentRuntime(adapters) {
 
   function isWeeklyApprovalListPage() {
     return window.location.hash.indexOf("/project/WkReportService/wkreportListPage") >= 0;
+  }
+
+  function isBusinessAnalyticsPage() {
+    const value = String(window.location.href || "") + " " + String(window.location.hash || "");
+    return value.includes("/project/ProjectInfoService/projectinDedaultHomePage");
   }
 
   function ensureDailyPanel() {
@@ -856,6 +871,7 @@ export function startContentRuntime(adapters) {
 
   return {
     aiBridge: aiBridge,
-    ensureAutomation: ensureAutomation
+    ensureAutomation: ensureAutomation,
+    businessAnalyticsController: businessAnalyticsController
   };
 }

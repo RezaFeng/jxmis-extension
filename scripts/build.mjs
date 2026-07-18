@@ -74,6 +74,10 @@ async function writeStaticFiles(outputDir, mode) {
     path.join(ROOT_DIR, "src", "options", "options.css"),
     path.join(outputDir, "options.css")
   );
+  await copyFile(
+    path.join(ROOT_DIR, "src", "content", "business-analytics", "report.css"),
+    path.join(outputDir, "business-analytics.css")
+  );
 }
 
 async function bundleEntries(outputDir, mode) {
@@ -107,6 +111,7 @@ async function validateOutput(outputDir) {
     });
   });
   referencedFiles.add("options.css");
+  referencedFiles.add("business-analytics.css");
 
   await Promise.all(
     Array.from(referencedFiles).map(function (fileName) {

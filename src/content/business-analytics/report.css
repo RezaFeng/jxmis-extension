@@ -1,0 +1,27 @@
+:host { all: initial; }
+* { box-sizing: border-box; }
+.analytics-app { min-height: calc(100vh - 52px); background: #f4f6f8; color: #20262d; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.report-toolbar { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: 38px minmax(150px, 1fr) minmax(180px, 240px) 148px 148px auto auto; align-items: end; gap: 12px; min-height: 74px; padding: 12px 18px; border-bottom: 1px solid #d7dde3; background: #fff; }
+.report-title { align-self: center; display: flex; flex-direction: column; min-width: 0; }
+.report-title strong { font-size: 19px; }
+.report-title span { overflow: hidden; color: #68737e; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+label { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: #59636e; font-size: 12px; font-weight: 600; }
+select, input, button { min-height: 36px; border: 1px solid #b8c1ca; border-radius: 6px; padding: 7px 10px; color: #20262d; font: inherit; background: #fff; }
+select, input { width: 100%; }
+button { cursor: pointer; white-space: nowrap; }
+button:hover { border-color: #1769aa; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #1769aa; outline-offset: 2px; }
+button.primary { border-color: #1769aa; background: #1769aa; color: #fff; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+.icon-button { width: 36px; padding: 0; font-size: 18px; }
+.toolbar-actions { display: flex; gap: 6px; align-items: center; }
+.data-status { align-self: center; max-width: 130px; overflow: hidden; color: #52606c; text-overflow: ellipsis; white-space: nowrap; }
+.report-content { width: min(1440px, calc(100% - 32px)); margin: 0 auto; padding: 24px 0 48px; }
+.state-panel { min-height: 150px; display: flex; flex-direction: column; justify-content: center; padding: 26px 0; border-bottom: 1px solid #d7dde3; }
+.state-panel strong { font-size: 18px; }
+.state-panel p { margin: 6px 0 0; color: #64707b; }
+.progress { width: min(520px, 100%); height: 6px; margin-top: 18px; overflow: hidden; border-radius: 3px; background: #dfe4e8; }
+.progress span { display: block; width: 12%; height: 100%; background: #1769aa; transition: width .2s ease; }
+.report-summary { padding: 18px 0; color: #3f4a54; }
+@media (max-width: 1080px) { .report-toolbar { grid-template-columns: 36px 1fr 1fr 1fr; align-items: end; } .toolbar-actions { grid-column: 2 / -1; flex-wrap: wrap; } .data-status { grid-column: 1 / -1; } }
+@media (max-width: 680px) { .report-toolbar { position: static; grid-template-columns: 36px 1fr; } .report-toolbar label { grid-column: 1 / -1; } .toolbar-actions { grid-column: 1 / -1; } .report-content { width: calc(100% - 24px); padding-top: 12px; } }

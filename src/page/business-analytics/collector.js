@@ -119,6 +119,14 @@ export function createAnalyticsCollector(adapters) {
         failedRequests: [],
         sourceStatus: []
       };
+      if (request.scopeOnly === true) {
+        return Object.assign(base, {
+          scopeOnly: true,
+          complete: true,
+          coverage: 1,
+          diagnostics: scope.diagnostics
+        });
+      }
       if (selectedProjects.length === 0) {
         return Object.assign(base, {
           complete: true,
