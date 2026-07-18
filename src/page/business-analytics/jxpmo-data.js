@@ -150,6 +150,16 @@ export function createJxpmoAnalyticsData(adapters) {
     }, { pageSize });
     const byId = new Map();
     rows.forEach(function (row) {
+      if (
+        row &&
+        typeof row === "object" &&
+        !Array.isArray(row) &&
+        (row.projectDept === null ||
+          row.projectDept === undefined ||
+          String(row.projectDept).trim() === "")
+      ) {
+        return;
+      }
       const project = normalizeProject(row);
       byId.set(project.projectId, project);
     });

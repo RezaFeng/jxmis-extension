@@ -74,6 +74,31 @@ test("analytics data uses same-origin endpoints and normalizes all project pages
   assert.equal(projectUrls.some(function (request) { return request.url.includes("projectDept"); }), false);
 });
 
+test("analytics data skips projects without a department", async function () {
+  const data = createJxpmoAnalyticsData({
+    location: { origin: "https://jxmis.example.com" },
+    storage: { getItem: function () { return "/jxpmo"; } },
+    fetch: async function () {
+      return {
+        ok: true,
+        json: async function () {
+          return {
+            recordsTotal: 3,
+            rows: [
+              { projectId: "P1", projectName: "有效项目", projectDept: "D1" },
+              { projectId: "P2", projectName: "缺失部门项目" },
+              { projectId: "P3", projectName: "空白部门项目", projectDept: "  " }
+            ]
+          };
+        }
+      };
+    }
+  });
+
+  const projects = await data.fetchProjects();
+  assert.deepEqual(projects.map(function (project) { return project.projectId; }), ["P1"]);
+});
+
 test("analytics data requires daily cost and normalizes date and hours", async function () {
   let invalidCost = false;
   const data = createJxpmoAnalyticsData({
