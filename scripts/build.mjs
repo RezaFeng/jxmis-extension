@@ -11,7 +11,7 @@ const BUNDLED_ENTRIES = {
   "page-batch-work": path.join(ROOT_DIR, "src", "entries", "page-batch-work.js"),
   "page-daily-approval": path.join(ROOT_DIR, "src", "entries", "page-daily-approval.js"),
   "page-weekly-approval": path.join(ROOT_DIR, "src", "entries", "page-weekly-approval.js"),
-  popup: path.join(ROOT_DIR, "src", "entries", "popup.js")
+  options: path.join(ROOT_DIR, "src", "entries", "options.js")
 };
 
 function parseArgs(args) {
@@ -66,12 +66,12 @@ async function writeStaticFiles(outputDir, mode) {
     "utf8"
   );
   await copyFile(
-    path.join(ROOT_DIR, "src", "popup", "popup.html"),
-    path.join(outputDir, "popup.html")
+    path.join(ROOT_DIR, "src", "options", "options.html"),
+    path.join(outputDir, "options.html")
   );
   await copyFile(
-    path.join(ROOT_DIR, "src", "popup", "popup.css"),
-    path.join(outputDir, "popup.css")
+    path.join(ROOT_DIR, "src", "options", "options.css"),
+    path.join(outputDir, "options.css")
   );
 }
 
@@ -93,7 +93,7 @@ async function validateOutput(outputDir) {
   const manifest = JSON.parse(await readFile(path.join(outputDir, "manifest.json"), "utf8"));
   const referencedFiles = new Set([
     manifest.background.service_worker,
-    manifest.action.default_popup
+    manifest.options_ui.page
   ]);
   manifest.content_scripts.forEach(function (contentScript) {
     contentScript.js.forEach(function (fileName) {
@@ -105,7 +105,7 @@ async function validateOutput(outputDir) {
       referencedFiles.add(fileName);
     });
   });
-  referencedFiles.add("popup.css");
+  referencedFiles.add("options.css");
 
   await Promise.all(
     Array.from(referencedFiles).map(function (fileName) {

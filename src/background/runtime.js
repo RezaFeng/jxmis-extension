@@ -23,6 +23,12 @@ export function registerBackgroundRuntime(adapters) {
     logger: adapters.logger
   });
 
+  if (chrome.action && chrome.action.onClicked) {
+    chrome.action.onClicked.addListener(function () {
+      chrome.runtime.openOptionsPage();
+    });
+  }
+
   chrome.runtime.onMessage.addListener(function (message, _sender, sendResponse) {
     if (!message) {
       return false;

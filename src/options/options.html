@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JXPMO 扩展设置</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <header><div><h1>JXPMO 扩展设置</h1><p>统一管理周报 AI、项目经理覆盖和经营分析口径</p></div><button id="save" class="primary" type="button">保存配置</button></header>
+    <main>
+      <section>
+        <h2>AI 周报</h2>
+        <div class="grid two">
+          <label><span>模型厂商</span><select id="provider"><option value="deepseek">DeepSeek</option><option value="modelscope">ModelScope</option><option value="openai-compatible">OpenAI-compatible</option></select></label>
+          <label><span>模型 URL</span><input id="baseUrl" type="url" placeholder="https://api.openai.com/v1"></label>
+          <label><span>API Key</span><input id="apiKey" type="password" autocomplete="off"></label>
+          <label><span>模型</span><span class="inline"><input id="model" list="modelList"><button id="refreshModels" type="button">刷新模型</button></span><datalist id="modelList"></datalist></label>
+          <label class="check"><input id="enableThinking" type="checkbox"><span>思考模式</span></label>
+          <label><span>项目经理 ID</span><input id="projectManager" type="text"></label>
+        </div>
+        <label><span>总结周报 System Prompt</span><textarea id="systemPrompt" rows="8"></textarea></label>
+      </section>
+      <section>
+        <div class="section-title"><h2>经营分析口径</h2><button id="restoreAnalytics" type="button">恢复默认</button></div>
+        <div id="projectFilters" class="filter-grid"></div>
+      </section>
+      <section>
+        <h2>预警阈值</h2>
+        <div class="grid thresholds">
+          <label><span>低人均产值（元/人年）</span><input data-threshold="lowPerCapita" type="number" min="1"></label>
+          <label><span>CPI 预警</span><input data-threshold="cpiWarn" type="number" min="0" step="0.01"></label>
+          <label><span>SPI 预警</span><input data-threshold="spiWarn" type="number" min="0" step="0.01"></label>
+          <label><span>SPI 严重</span><input data-threshold="spiCritical" type="number" min="0" step="0.01"></label>
+          <label><span>预算耗尽预警天数</span><input data-threshold="budgetExhaustionDays" type="number" min="1" step="1"></label>
+          <label><span>高投入零产出人天</span><input data-threshold="highInputZeroOutputMd" type="number" min="0" step="0.1"></label>
+          <label><span>严重超支比例</span><input data-threshold="severeOverrunRatio" type="number" min="1" step="0.01"></label>
+        </div>
+      </section>
+      <section>
+        <h2>本地数据</h2>
+        <div class="inline"><button type="button" disabled>清理原始缓存</button><button type="button" disabled>清理全部历史</button></div>
+      </section>
+      <div id="status" class="status" role="status"></div>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

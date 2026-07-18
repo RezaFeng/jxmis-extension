@@ -3,8 +3,10 @@
   "name": "jxmis-extension",
   "version": "1.0.0",
   "description": "Chrome extension for JXMIS daily approval and batch work automation.",
-  "action": {
-    "default_popup": "popup.html"
+  "action": {},
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
   },
   "permissions": [
     "storage"

@@ -24,8 +24,10 @@ function createChrome() {
     values: values,
     runtime: {
       onMessage: createEvent(),
-      onConnect: createEvent()
+      onConnect: createEvent(),
+      openOptionsPage: function () { this.optionsOpened = true; }
     },
+    action: { onClicked: createEvent() },
     storage: {
       local: {
         get: function (keys, callback) {
@@ -81,6 +83,8 @@ test("background runtime handles model and cache messages", async function () {
   assert.deepEqual(cacheSet, { ok: true });
   assert.deepEqual(cacheGet, { ok: true, cache: { summary: "text" } });
   assert.ok(runtime.aiClient);
+  chrome.action.onClicked.first()();
+  assert.equal(chrome.runtime.optionsOpened, true);
 });
 
 test("background port returns stream content and done", async function () {
