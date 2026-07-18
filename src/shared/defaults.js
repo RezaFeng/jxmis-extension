@@ -14,6 +14,19 @@ export const DEFAULT_SYSTEM_PROMPT = [
     "6. 完成OMS作业计划（调度）场景下C09、D10违章不输出规则调整。"
   ].join("\n");
 
+import {
+  DEFAULT_PROJECT_FILTERS,
+  DEFAULT_RISK_THRESHOLDS
+} from "../analytics/config.js";
+
 export const DEFAULTS = Object.freeze({
-  systemPrompt: DEFAULT_SYSTEM_PROMPT
+  provider: "deepseek",
+  baseUrl: "",
+  apiKey: "",
+  model: "",
+  enableThinking: false,
+  systemPrompt: DEFAULT_SYSTEM_PROMPT,
+  projectManager: "",
+  analyticsProjectFilters: DEFAULT_PROJECT_FILTERS,
+  analyticsRiskThresholds: DEFAULT_RISK_THRESHOLDS
 });
