@@ -38,6 +38,11 @@ test("requires request ids for request-response message types", function () {
     { userPrompt: "summary" }
   );
   assert.equal(protocol.parseMessage(message).ok, true);
+  assert.equal(protocol.parseMessage({
+    source: protocol.SOURCES.ANALYTICS_CONTENT,
+    type: protocol.MESSAGE_TYPES.ANALYTICS_GET_LATEST,
+    reportKey: "R1"
+  }).ok, false);
 });
 
 test("rejects wrong sources, types, and window senders", function () {

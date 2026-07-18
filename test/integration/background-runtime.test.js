@@ -55,10 +55,26 @@ function sendRuntimeMessage(chrome, message) {
   });
 }
 
+function createAnalyticsRepository() {
+  const snapshots = new Map();
+  return {
+    getLatest: async function (key) { return snapshots.get(key) || null; },
+    saveComplete: async function (snapshot) { snapshots.set(snapshot.reportKey, snapshot); return snapshot; },
+    saveQueryCache: async function (entry) { return entry; },
+    retryDescriptor: async function () { return [{ source: "wbs" }]; },
+    saveFailedRequests: async function () {},
+    cleanup: async function () { return { removedCache: 1, removedHistory: 0 }; },
+    clearQueryCache: async function () {},
+    clearHistory: async function () {},
+    getStats: async function () { return { queryCache: { count: 0 } }; }
+  };
+}
+
 test("background runtime handles model and cache messages", async function () {
   const chrome = createChrome();
   const runtime = registerBackgroundRuntime({
     chrome: chrome,
+    analyticsRepository: createAnalyticsRepository(),
     fetch: async function (url) {
       assert.equal(url, "https://ai.example.com/v1/models");
       return {
@@ -87,10 +103,36 @@ test("background runtime handles model and cache messages", async function () {
   assert.equal(chrome.runtime.optionsOpened, true);
 });
 
+test("background analytics messages use repository contracts", async function () {
+  const chrome = createChrome();
+  registerBackgroundRuntime({
+    chrome,
+    analyticsRepository: createAnalyticsRepository(),
+    fetch: async function () { throw new Error("unexpected fetch"); }
+  });
+  const snapshot = { reportKey: "R1", complete: true, capturedAt: "2026-07-18T00:00:00Z" };
+  assert.equal((await sendRuntimeMessage(chrome, {
+    type: MESSAGE_TYPES.ANALYTICS_SAVE_COMPLETE,
+    requestId: "save-1",
+    snapshot
+  })).ok, true);
+  const latest = await sendRuntimeMessage(chrome, {
+    type: MESSAGE_TYPES.ANALYTICS_GET_LATEST,
+    requestId: "get-1",
+    reportKey: "R1"
+  });
+  assert.deepEqual(latest, { ok: true, result: snapshot });
+  assert.deepEqual(await sendRuntimeMessage(chrome, {
+    type: MESSAGE_TYPES.ANALYTICS_GET_LATEST,
+    reportKey: "R1"
+  }), { ok: false, error: "requestId is required" });
+});
+
 test("background port returns stream content and done", async function () {
   const chrome = createChrome();
   registerBackgroundRuntime({
     chrome: chrome,
+    analyticsRepository: createAnalyticsRepository(),
     fetch: async function () {
       return {
         ok: true,
