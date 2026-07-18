@@ -140,8 +140,15 @@ export function normalizeProject(raw) {
     projectManagerName: normalizeIdentifier(raw.projectManagerName, "projectManagerName"),
     isCreateWkReport: normalizeIdentifier(raw.isCreateWkReport, "isCreateWkReport")
   };
+  const subcontractAmountBlank = isBlank(raw.subcontractAmount) ||
+    typeof raw.subcontractAmount === "string" && raw.subcontractAmount.trim() === "";
+  const subcontractAmount = subcontractAmountBlank
+    ? normalizeFiniteNumber(raw.tqSoftAmount, "tqSoftAmount", { blankAsZero: true })
+    : normalizeFiniteNumber(raw.subcontractAmount, "subcontractAmount", { blankAsZero: true });
   PROJECT_NUMBER_FIELDS.forEach(function (field) {
-    project[field] = normalizeFiniteNumber(raw[field], field, { blankAsZero: true });
+    project[field] = field === "subcontractAmount"
+      ? subcontractAmount
+      : normalizeFiniteNumber(raw[field], field, { blankAsZero: true });
   });
   return project;
 }

@@ -55,7 +55,8 @@ test("analytics data uses same-origin endpoints and normalizes all project pages
           projectDept: "2",
           classification: "J",
           currStatus: "20",
-          subcontractAmount: "100"
+          subcontractAmount: index === 0 ? "100" : index === 1 ? null : undefined,
+          tqSoftAmount: index === 0 ? "900" : index === 1 ? "200" : undefined
         };
       });
       return { ok: true, json: async function () { return { recordsTotal: 3, rows: raw }; } };
@@ -64,7 +65,7 @@ test("analytics data uses same-origin endpoints and normalizes all project pages
   assert.equal((await data.fetchDepartments()).length, 1);
   const projects = await data.fetchProjects();
   assert.equal(projects.length, 3);
-  assert.equal(projects[0].subcontractAmount, 100);
+  assert.deepEqual(projects.map(function (project) { return project.subcontractAmount; }), [100, 200, 0]);
   requests.forEach(function (request) {
     assert.equal(request.options.credentials, "same-origin");
   });

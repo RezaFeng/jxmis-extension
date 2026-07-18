@@ -147,6 +147,29 @@ test("analytics config normalizes project values without discarding future enums
   assert.throws(function () { normalizeCalendarDate("2023-02-29"); }, /valid calendar date/);
 });
 
+test("analytics config falls back to tqSoftAmount for software service revenue", function () {
+  const base = { projectId: "P1", projectName: "项目A", projectDept: "D1" };
+  assert.equal(normalizeProject(Object.assign({}, base, {
+    subcontractAmount: "1,234.50",
+    tqSoftAmount: 9999
+  })).subcontractAmount, 1234.5);
+  assert.equal(normalizeProject(Object.assign({}, base, {
+    subcontractAmount: 0,
+    tqSoftAmount: 9999
+  })).subcontractAmount, 0);
+  assert.equal(normalizeProject(Object.assign({}, base, {
+    subcontractAmount: " ",
+    tqSoftAmount: "-25.5"
+  })).subcontractAmount, -25.5);
+  assert.equal(normalizeProject(base).subcontractAmount, 0);
+  assert.throws(function () {
+    normalizeProject(Object.assign({}, base, { subcontractAmount: "未知", tqSoftAmount: 100 }));
+  }, /subcontractAmount: must be a finite number/);
+  assert.throws(function () {
+    normalizeProject(Object.assign({}, base, { subcontractAmount: null, tqSoftAmount: "未知" }));
+  }, /tqSoftAmount: must be a finite number/);
+});
+
 test("analytics config normalizes successful blank business values as zero", function () {
   const daily = normalizeDailyRow({
     projectId: "P1",

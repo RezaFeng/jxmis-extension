@@ -76,7 +76,7 @@ src/
 - 经营数据只通过当前 JXPMO 同源接口读取，不写回 JXPMO。
 - 项目范围按组织树部门 ID 和本地配置过滤，不维护项目编码白名单。
 - 日报 `cost` 是投入成本来源，不使用固定单价兜底。
-- `subcontractAmount` 作为软件与服务合同金额；不下载基线或回款 Excel。
+- 软件与服务合同金额优先使用 `subcontractAmount`；主字段为空时以同单位的 `tqSoftAmount` 兜底，两者均为空时为 0；不下载基线或回款 Excel。
 - 接口成功返回的空业务数值按 0 计算；已知分母为 0 的比率强制为 0；网络、会话、HTTP、分页或 schema 技术失败仍显示“未获取”。
 - 经营数据不会发送到 AI provider。API Key 只保存在 `chrome.storage.local`。
 - 离线 HTML 使用禁止外部网络的 CSP，并对远端文本转义。
@@ -85,7 +85,7 @@ src/
 
 ## 测试与验收
 
-截至 2026-07-18，`npm run verify` 通过 187 个 Node 单元/集成测试和 9 个离线 Chromium E2E。E2E 覆盖原三类自动化、Options、项目菜单、实时刷新、默认投入范围、空值、上期比较、分页、全部部门、内存重试、取消、会话失效、HTML 下载和无经营 IndexedDB，并断言不请求真实 `jxmis.cyberwing.cn`。
+截至 2026-07-19，`npm run verify` 通过 188 个 Node 单元/集成测试和 9 个离线 Chromium E2E。E2E 覆盖原三类自动化、Options、项目菜单、实时刷新、默认投入范围、空值、合同金额兜底、上期比较、分页、全部部门、内存重试、取消、会话失效、HTML 下载和无经营 IndexedDB，并断言不请求真实 `jxmis.cyberwing.cn`。
 
 离线测试不登录真实系统，也不代表业务数据对账完成。上线前必须按 [经营分析 UAT](docs/经营分析UAT.md) 完成至少 3 个部门、2 个完整自然周的只读双跑，并由产品负责人确认差异。
 

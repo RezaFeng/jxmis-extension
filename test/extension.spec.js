@@ -215,7 +215,7 @@ test("business analytics fixture uses live formal scope, comparison and export",
   await expect(host.getByRole("heading", { name: "本期经营与上期比较" })).toBeVisible();
   await expect(host.getByRole("row", { name: /投入人天 1 0\.5 0\.5 100%/ })).toBeVisible();
   const contractCard = host.locator('[data-role="overview-cards"] article').filter({ hasText: "软件与服务合同" });
-  await expect(contractCard.locator("strong")).toHaveText("0 万元");
+  await expect(contractCard.locator("strong")).toHaveText("30 万元");
   const efficiencyCard = host.locator('[data-role="overview-cards"] article').filter({ hasText: "成本效率" });
   await expect(efficiencyCard.locator("strong")).toHaveText(["0.00", "0.00"]);
   await expect(host.getByRole("heading", { name: "数据完整性与诊断" })).toBeVisible();

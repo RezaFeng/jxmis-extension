@@ -42,6 +42,7 @@ function analyticsProject(index, departmentId) {
     isCreateWkReport: "1",
     contractAmount: 1200000,
     subcontractAmount: index === 1 ? null : 1000000,
+    tqSoftAmount: index === 1 ? 300000 : null,
     estiExeuCost: 500000,
     realExeuCost: index === 1 ? null : 200000,
     realWorkload: index === 1 ? null : 261,
