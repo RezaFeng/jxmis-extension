@@ -170,6 +170,7 @@ export function startContentRuntime(adapters) {
   });
 
   const automationScriptLoads = {};
+  const reportedAutomationLoadErrors = new Set();
 
   function loadAutomationScripts(automation) {
     if (!automationScriptLoads[automation.name]) {
@@ -177,15 +178,16 @@ export function startContentRuntime(adapters) {
         return chain.then(function () {
           return injectPageScript(scriptConfig.id, scriptConfig.fileName);
         });
-      }, Promise.resolve()).catch(function (error) {
-        delete automationScriptLoads[automation.name];
-        throw error;
-      });
+      }, Promise.resolve());
     }
     return automationScriptLoads[automation.name];
   }
 
   function handleAutomationLoadError(automation, error) {
+    if (reportedAutomationLoadErrors.has(automation.name)) {
+      return;
+    }
+    reportedAutomationLoadErrors.add(automation.name);
     console.error("[cw-content] load automation scripts failed", {
       automation: automation.name,
       error: error && error.message ? error.message : String(error)

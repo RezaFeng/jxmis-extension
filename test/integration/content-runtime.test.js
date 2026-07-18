@@ -164,3 +164,63 @@ test("business analytics content loads once anywhere in the project module", asy
   assert.ok(ensured >= 1);
   assert.equal(typeof listeners.hashchange, "function");
 });
+
+test("content runtime reports a page script load failure once per page", async function () {
+  const errors = [];
+  let loadAttempts = 0;
+  const originalConsoleError = console.error;
+  const windowRef = {
+    location: {
+      href: "https://jxmis.cyberwing.cn/jxpmo/index/frame",
+      hash: "#!/jxpmo/project/ProjectInfoService/projectinDedaultHomePage"
+    },
+    addEventListener: function () {},
+    postMessage: function () {},
+    top: null,
+    self: null
+  };
+  windowRef.top = windowRef;
+  windowRef.self = windowRef;
+  class Observer { observe() {} }
+
+  console.error = function (...args) { errors.push(args); };
+  try {
+    const runtime = startContentRuntime({
+      window: windowRef,
+      document: {
+        documentElement: {},
+        getElementById: function () { return null; },
+        querySelector: function (selector) {
+          return selector === '#menunav > li[appid="project:1201,jxoa"]' ? {} : null;
+        }
+      },
+      chrome: {
+        runtime: { sendMessage: function () {}, connect: function () { return createPort(); } },
+        storage: {
+          local: { get: function (_defaults, callback) { callback({ projectManager: "" }); } },
+          onChanged: createEvent()
+        }
+      },
+      MutationObserver: Observer,
+      businessAnalyticsController: {
+        ensureNavigation: function () {},
+        syncLocation: function () {}
+      },
+      pageScriptLoader: function () {
+        loadAttempts += 1;
+        return Promise.reject(new Error("load page script failed: page-business-analytics.js"));
+      }
+    });
+
+    await new Promise(function (resolve) { setTimeout(resolve, 0); });
+    runtime.ensureAutomation();
+    runtime.ensureAutomation();
+    await new Promise(function (resolve) { setTimeout(resolve, 0); });
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(errors.length, 1);
+  assert.equal(loadAttempts, 1);
+  assert.equal(errors[0][1].automation, "businessAnalytics");
+});
