@@ -168,3 +168,88 @@ test("weekly fixture loads only weekly automation and completes empty run", asyn
   await expect(page.locator("#cw-weekly-approval-status")).toHaveText("无待审核周报");
   await page.close();
 });
+
+async function openAnalytics(mode = "full") {
+  const page = await openFixture(
+    "/jxpmo/fixtures/project?mode=" + mode +
+      "#!/jxpmo/project/ProjectInfoService/projectinDedaultHomePage"
+  );
+  const navigation = page.getByRole("link", { name: "经营分析", exact: true });
+  await expect(navigation).toBeVisible();
+  await expect(page.locator("#cw-business-analytics-navigation").locator("xpath=preceding-sibling::li[1]"))
+    .toHaveAttribute("appid", "project:1201,jxoa");
+  await navigation.click();
+  await expect(page.locator("#cw-business-analytics-navigation")).toHaveClass(/active/);
+  await expect(page.locator("#app-wrapper")).toBeHidden();
+  const host = page.locator("#cw-business-analytics-host");
+  await expect(host.locator(".report-title strong")).toHaveText("经营分析");
+  await expect(host.locator('[data-field="department"] option')).toHaveCount(4);
+  await host.locator('[data-field="startDate"]').fill("2026-07-06");
+  await host.locator('[data-field="endDate"]').fill("2026-07-12");
+  return { page, host };
+}
+
+async function queryDepartment(host, departmentId, projectName) {
+  await host.locator('[data-field="department"]').selectOption(departmentId);
+  await host.getByRole("button", { name: "查询", exact: true }).click();
+  await expect(host.locator('[data-role="data-status"]')).toHaveText("报告已生成");
+  await expect(host.getByText(projectName, { exact: true }).first()).toBeVisible();
+}
+
+test("business analytics fixture covers reports, departments, company cache and export", async function () {
+  const { page, host } = await openAnalytics();
+  await expectOnlyPageBundle(page, "cw-business-analytics-page-script", "page-business-analytics.js");
+
+  await queryDepartment(host, "D1", "Fixture Project One");
+  await expect(host.getByRole("heading", { name: "本周有投入项目经营" })).toBeVisible();
+  await expect(host.getByRole("heading", { name: "数据完整性与诊断" })).toBeVisible();
+
+  const downloadPromise = page.waitForEvent("download");
+  await host.getByRole("button", { name: "导出HTML", exact: true }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^经营分析_交付一部_/);
+
+  await queryDepartment(host, "D2", "Fixture Project Two");
+  await expect.poll(async function () {
+    return serviceWorker.evaluate(async function () {
+      const databases = await indexedDB.databases();
+      return databases.some(function (item) { return item.name === "cw-business-analytics"; });
+    });
+  }).toBe(true);
+  await host.locator('[data-field="department"]').selectOption("all");
+  await host.getByRole("button", { name: "查询", exact: true }).click();
+  await expect(host.getByRole("heading", { name: "全部部门总览" })).toBeVisible();
+  await expect(host.locator('[data-role="company-analytics"] .coverage-summary'))
+    .toHaveText("部门覆盖 2/2");
+  await page.close();
+});
+
+test("business analytics fixture completes project pagination before local scope", async function () {
+  const { page, host } = await openAnalytics("paginated");
+  await expect(host.locator('[data-field="department"] option[value="D2"]')).toContainText("200");
+  await queryDepartment(host, "D1", "Fixture Project One");
+  await page.close();
+});
+
+test("business analytics fixture preserves partial results and session expiry", async function () {
+  const partial = await openAnalytics("partial");
+  await partial.host.locator('[data-field="department"]').selectOption("D1");
+  await partial.host.getByRole("button", { name: "查询", exact: true }).click();
+  await expect(partial.host.locator('[data-role="data-status"]')).toHaveText("报告部分可用");
+  await expect(partial.host.getByRole("button", { name: "仅重试失败项" })).toBeVisible();
+  await partial.page.close();
+
+  const session = await openAnalytics("session");
+  await session.host.locator('[data-field="department"]').selectOption("D1");
+  await session.host.getByRole("button", { name: "查询", exact: true }).click();
+  await expect(session.host.locator('[data-role="data-status"]')).toHaveText("登录已失效");
+  await session.page.close();
+});
+
+test("business analytics options page remains available", async function () {
+  const extensionId = new URL(serviceWorker.url()).hostname;
+  const page = await context.newPage();
+  await page.goto("chrome-extension://" + extensionId + "/options.html");
+  await expect(page.getByRole("heading", { name: "扩展设置" })).toBeVisible();
+  await page.close();
+});

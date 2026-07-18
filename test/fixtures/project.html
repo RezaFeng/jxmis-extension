@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>Business analytics fixture</title>
+    <script src="/fixture-runtime.js"></script>
+  </head>
+  <body>
+    <div id="page-wrapper">
+      <div id="nav-col">
+        <ul class="nav nav-pills nav-stacked" id="menunav">
+          <li class="open active" appid="project:0101,jxoa">
+            <a class="dropdown-toggle single" url="/project/ProjectInfoService/projectinDedaultHomePage" href="javascript:;">
+              <i class="fa topmenu fa-file-text-o"></i>
+              <span class="appname"> 首页 </span>
+              <span class="msgcount" msgcount="project:0101,jxoa"></span>
+              <i class="fa fa-angle-right drop-icon"></i>
+            </a>
+          </li>
+          <li appid="project:1201,jxoa">
+            <a class="dropdown-toggle single" url="/project/ModelFileService/modelfileListPage" href="javascript:;">
+              <i class="fa topmenu fa-file-text-o"></i>
+              <span class="appname"> 项目文档模板 </span>
+              <span class="msgcount" msgcount="project:1201,jxoa"></span>
+              <i class="fa fa-angle-right drop-icon"></i>
+            </a>
+          </li>
+        </ul>
+      </div>
+      <div id="content-wrapper">
+        <div id="app-wrapper">
+          <main>
+            <h1>项目管理</h1>
+            <div id="ProjectInfogrid">Fixture project grid</div>
+          </main>
+        </div>
+        <iframe id="app-wrapper-frame" hidden></iframe>
+      </div>
+    </div>
+  </body>
+</html>
