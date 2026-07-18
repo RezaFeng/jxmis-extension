@@ -132,3 +132,62 @@ test("analytics engine marks historical cumulative metrics unavailable", functio
   const acCard = report.cards.overview.find(function (item) { return item.id === "ac"; });
   assert.equal(acCard.values[0].status, "unavailable");
 });
+
+test("analytics engine keeps failed business sources unavailable instead of zero", function () {
+  const report = createAnalyticsEngine().buildReport(fixture({
+    complete: false,
+    dailyByProject: {},
+    previousDailyByProject: {},
+    milestonesByProject: { P2: [] },
+    invoicesByProject: { P2: [] },
+    sourceStatus: [
+      { source: "daily", status: "failed" },
+      { source: "previousDaily", status: "failed" },
+      { source: "milestones", projectId: "P1", status: "failed" },
+      { source: "milestones", projectId: "P2", status: "empty" },
+      { source: "invoices", projectId: "P1", status: "failed" },
+      { source: "invoices", projectId: "P2", status: "empty" },
+      { source: "monthlyInvoices", status: "failed" }
+    ]
+  }));
+
+  assert.equal(report.metrics.active.inputMd, null);
+  assert.equal(report.metrics.active.inputCost, null);
+  assert.equal(report.metrics.active.inputDelta, null);
+  assert.equal(report.metrics.milestone.plannedCount, null);
+  assert.equal(report.metrics.milestone.overdueCount, null);
+  assert.equal(report.metrics.invoice.monthPlan, null);
+  assert.equal(report.metrics.invoice.received, null);
+  assert.equal(report.metrics.invoice.pending, null);
+  assert.equal(report.metrics.invoice.overdueCount, null);
+  assert.equal(report.cards.active.find(function (item) { return item.id === "inputMd"; }).values[0].status, "unavailable");
+  assert.equal(report.cards.milestone.find(function (item) { return item.id === "milestonePlanned"; }).values[0].status, "unavailable");
+  assert.equal(report.cards.invoice.find(function (item) { return item.id === "invoiceMonthPlan"; }).values[0].status, "unavailable");
+});
+
+test("analytics engine treats successful empty sources as known zero", function () {
+  const report = createAnalyticsEngine().buildReport(fixture({
+    dailyByProject: {},
+    previousDailyByProject: {},
+    milestonesByProject: { P1: [], P2: [] },
+    invoicesByProject: { P1: [], P2: [] },
+    sourceStatus: [
+      { source: "daily", status: "empty" },
+      { source: "previousDaily", status: "empty" },
+      { source: "milestones", projectId: "P1", status: "empty" },
+      { source: "milestones", projectId: "P2", status: "empty" },
+      { source: "invoices", projectId: "P1", status: "empty" },
+      { source: "invoices", projectId: "P2", status: "empty" },
+      { source: "monthlyInvoices", status: "empty" }
+    ]
+  }));
+
+  assert.equal(report.metrics.active.inputMd, 0);
+  assert.equal(report.metrics.active.inputCost, 0);
+  assert.equal(report.metrics.milestone.plannedCount, 0);
+  assert.equal(report.metrics.milestone.overdueCount, 0);
+  assert.equal(report.metrics.invoice.monthPlan, 0);
+  assert.equal(report.metrics.invoice.received, 0);
+  assert.equal(report.metrics.invoice.pending, 0);
+  assert.equal(report.metrics.invoice.overdueCount, 0);
+});

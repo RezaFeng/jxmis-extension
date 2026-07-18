@@ -32,6 +32,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .metric-card span { overflow: hidden; color: #68737e; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .metric-card strong { color: #20262d; font-size: 18px; font-weight: 650; }
 .metric-card strong.unavailable { color: #8a5a28; font-size: 13px; }
+.operational-section > [data-role$="-cards"] { margin-bottom: 18px; }
+.operational-list + .operational-list { margin-top: 18px; }
+.operational-list h3 { margin: 0 0 8px; color: #4c5761; font-size: 14px; }
+.operational-list[data-role^="milestone-"] table { min-width: 980px; }
+.operational-list[data-role^="invoice-"] table { min-width: 1240px; }
+.diagnostic-note { margin: 14px 0 0; padding-left: 10px; border-left: 3px solid #677887; color: #52606c; }
 .project-filters { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(120px, 160px)) auto auto; gap: 8px; align-items: center; margin-bottom: 12px; }
 .project-filters span { color: #5b6670; white-space: nowrap; }
 .table-scroll { width: 100%; overflow-x: auto; border: 1px solid #d5dbe1; background: #fff; }

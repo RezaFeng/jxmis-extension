@@ -11,6 +11,267 @@ export function filterProjectRows(projects, filters) {
   });
 }
 
+function formatOperationalValue(value, format) {
+  if (value === null || value === undefined) return "未获取";
+  if (format === "money") {
+    return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(value / 10000) + " 万元";
+  }
+  if (format === "percent") {
+    return new Intl.NumberFormat("zh-CN", { style: "percent", maximumFractionDigits: 1 }).format(value);
+  }
+  if (format === "ratio") return Number(value).toFixed(2);
+  return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(value);
+}
+
+function appendOperationalCards(document, container, cards) {
+  const grid = document.createElement("div");
+  grid.className = "metric-grid";
+  (cards || []).forEach(function (card) {
+    const item = document.createElement("article");
+    item.className = "metric-card";
+    const label = document.createElement("span");
+    label.textContent = card.label;
+    item.appendChild(label);
+    card.values.forEach(function (value) {
+      const number = document.createElement("strong");
+      number.textContent = formatOperationalValue(value.value, value.format);
+      if (value.status === "unavailable") number.className = "unavailable";
+      item.appendChild(number);
+    });
+    grid.appendChild(item);
+  });
+  container.appendChild(grid);
+}
+
+function appendOperationalTable(document, container, columns, rows, emptyLabel) {
+  const wrap = document.createElement("div");
+  wrap.className = "table-scroll";
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const header = document.createElement("tr");
+  columns.forEach(function (column) {
+    const th = document.createElement("th");
+    th.textContent = column.label;
+    header.appendChild(th);
+  });
+  thead.appendChild(header);
+  const tbody = document.createElement("tbody");
+  if (!rows || rows.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = columns.length;
+    td.textContent = emptyLabel;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    rows.forEach(function (row) {
+      const tr = document.createElement("tr");
+      columns.forEach(function (column) {
+        const td = document.createElement("td");
+        const value = column.value ? column.value(row) : row[column.key];
+        td.textContent = column.format
+          ? formatOperationalValue(value, column.format)
+          : value === null || value === undefined || value === "" ? "未获取" : String(value);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+  table.append(thead, tbody);
+  wrap.appendChild(table);
+  container.appendChild(wrap);
+}
+
+function createOperationalSection(document, title, role) {
+  const section = document.createElement("section");
+  section.className = "report-section operational-section";
+  section.dataset.role = role;
+  const heading = document.createElement("h2");
+  heading.textContent = title;
+  section.appendChild(heading);
+  return section;
+}
+
+function appendOperationalList(document, container, title, role, columns, rows, emptyLabel) {
+  const group = document.createElement("div");
+  group.className = "operational-list";
+  group.dataset.role = role;
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  group.appendChild(heading);
+  appendOperationalTable(document, group, columns, rows, emptyLabel);
+  container.appendChild(group);
+}
+
+function relativeDateLabel(value, endDate, completed) {
+  if (completed || !value || !endDate) return "-";
+  const days = Math.round((Date.parse(value + "T00:00:00Z") - Date.parse(endDate + "T00:00:00Z")) / 86400000);
+  if (!Number.isFinite(days)) return "未获取";
+  return days < 0 ? "逾期 " + Math.abs(days) + " 天" : "剩余 " + days + " 天";
+}
+
+function milestoneColumns(endDate) {
+  return [
+    { key: "projectNo", label: "编码" },
+    { key: "projectName", label: "项目名称" },
+    { key: "projectManagerName", label: "PM" },
+    { key: "nodeName", label: "节点" },
+    { key: "planEndTime", label: "计划日" },
+    {
+      label: "状态",
+      value: function (row) { return String(row.confirmStatus) === "2" ? "已完成" : "未完成"; }
+    },
+    {
+      label: "距截止日",
+      value: function (row) { return relativeDateLabel(row.planEndTime, endDate, String(row.confirmStatus) === "2"); }
+    }
+  ];
+}
+
+function invoiceColumns(endDate) {
+  return [
+    { key: "projectNo", label: "编码" },
+    { key: "projectName", label: "项目名称" },
+    { key: "projectManagerName", label: "PM" },
+    { key: "contractNo", label: "合同编号" },
+    { key: "planDate", label: "计划回款日" },
+    { key: "planAmount", label: "计划金额", format: "money" },
+    { key: "receivedAmount", label: "已回款", format: "money" },
+    { key: "pendingAmount", label: "待回款", format: "money" },
+    {
+      label: "距截止日",
+      value: function (row) {
+        return row.pendingAmount > 0 ? relativeDateLabel(row.planDate, endDate, false) : "-";
+      }
+    }
+  ];
+}
+
+function appendInvoiceDiagnostics(document, container, report) {
+  const diagnostics = document.createElement("p");
+  diagnostics.className = "diagnostic-note";
+  diagnostics.dataset.role = "invoice-diagnostics";
+  const supplement = report.tables.diagnostics?.invoiceSupplement || {};
+  if (report.tables.invoices.available === false) {
+    diagnostics.textContent = "回款关联诊断未获取（不随临时项目选择联动）";
+  } else {
+    diagnostics.textContent = "未映射 " + (supplement.unmappedCount || 0) + " 笔，" +
+      formatOperationalValue(supplement.unmappedAmount || 0, "money") + "；多重匹配 " +
+      (supplement.ambiguousCount || 0) + " 笔，" +
+      formatOperationalValue(supplement.ambiguousAmount || 0, "money") +
+      "（不随临时项目选择联动）";
+  }
+  container.appendChild(diagnostics);
+}
+
+export function renderAnalyticsOperationalSections(document, container, report) {
+  const labels = report.scope.periodLabels;
+  const active = createOperationalSection(document, labels.current + "有投入项目经营", "active-projects");
+  const cardHost = document.createElement("div");
+  cardHost.dataset.role = "active-cards";
+  active.appendChild(cardHost);
+  appendOperationalCards(document, cardHost, report.cards.active);
+  appendOperationalTable(document, active, [
+    { key: "projectNo", label: "编码" },
+    { key: "projectName", label: "项目名称" },
+    { key: "projectManagerName", label: "PM" },
+    { key: "inputMd", label: labels.current + "投入人天", format: "number" },
+    { key: "previousInputMd", label: labels.previous + "投入人天", format: "number" },
+    { key: "inputCost", label: labels.current + "投入成本", format: "money" },
+    { key: "costDelta", label: "成本环比", format: "percent" },
+    { key: "monthSPI", label: "月SPI", format: "ratio" },
+    { key: "periodSPI", label: "区间SPI", format: "ratio" },
+    { key: "periodPV", label: "区间PV", format: "money" },
+    { key: "periodEV", label: "区间EV", format: "money" },
+    { key: "serviceEV", label: "区间产服EV", format: "money" },
+    { key: "periodCPI", label: "区间CPI", format: "ratio" },
+    { key: "periodCCPI", label: "区间CCPI", format: "ratio" },
+    { key: "periodPerCapita", label: "区间人均产值", format: "money" },
+    { key: "nextPeriodPlannedMd", label: labels.next + "计划人天", format: "number" },
+    {
+      label: "风险",
+      value: function (row) {
+        return (row.risks || []).map(function (item) { return item.label; }).join("、") || "-";
+      }
+    }
+  ], report.tables.activeProjects, report.metrics.active.projectCount === null
+    ? "投入数据未获取完整"
+    : "当前范围无有投入项目");
+  container.appendChild(active);
+
+  const milestone = createOperationalSection(document, "里程碑与关键节点", "milestone-view");
+  const milestoneCards = document.createElement("div");
+  milestoneCards.dataset.role = "milestone-cards";
+  milestone.appendChild(milestoneCards);
+  appendOperationalCards(document, milestoneCards, report.cards.milestone);
+  const columns = milestoneColumns(report.identity.endDate);
+  appendOperationalList(
+    document,
+    milestone,
+    "本月节点",
+    "milestone-planned",
+    columns,
+    report.tables.milestones.planned,
+    report.tables.milestones.available === false ? "里程碑数据未获取完整" : "本月无计划节点"
+  );
+  appendOperationalList(
+    document,
+    milestone,
+    "已逾期",
+    "milestone-overdue",
+    columns,
+    report.tables.milestones.overdue,
+    report.tables.milestones.available === false ? "里程碑数据未获取完整" : "无逾期节点"
+  );
+  appendOperationalList(
+    document,
+    milestone,
+    "未来 7 天",
+    "milestone-upcoming",
+    columns,
+    report.tables.milestones.upcoming,
+    report.tables.milestones.available === false ? "里程碑数据未获取完整" : "未来 7 天无节点"
+  );
+  container.appendChild(milestone);
+
+  const invoice = createOperationalSection(document, "回款计划", "invoice-view");
+  const invoiceCards = document.createElement("div");
+  invoiceCards.dataset.role = "invoice-cards";
+  invoice.appendChild(invoiceCards);
+  appendOperationalCards(document, invoiceCards, report.cards.invoice);
+  const invoiceTableColumns = invoiceColumns(report.identity.endDate);
+  appendOperationalList(
+    document,
+    invoice,
+    "当月计划明细",
+    "invoice-month",
+    invoiceTableColumns,
+    report.tables.invoices.monthRows,
+    report.tables.invoices.available === false ? "回款数据未获取完整" : "当月无回款计划"
+  );
+  appendOperationalList(
+    document,
+    invoice,
+    "逾期未回",
+    "invoice-overdue",
+    invoiceTableColumns,
+    report.tables.invoices.overdue,
+    report.tables.invoices.available === false ? "回款数据未获取完整" : "无逾期未回记录"
+  );
+  appendInvoiceDiagnostics(document, invoice, report);
+  container.appendChild(invoice);
+}
+
+function replaceAnalyticsOperationalSections(document, container, report) {
+  const replacementHost = document.createElement("div");
+  renderAnalyticsOperationalSections(document, replacementHost, report);
+  ["active-projects", "milestone-view", "invoice-view"].forEach(function (role) {
+    const current = container.querySelector('[data-role="' + role + '"]');
+    const replacement = replacementHost.querySelector('[data-role="' + role + '"]');
+    if (current && replacement) current.replaceWith(replacement);
+  });
+}
+
 export function createBusinessAnalyticsReportView(adapters) {
   const document = adapters.document;
   let elements;
@@ -260,6 +521,7 @@ export function createBusinessAnalyticsReportView(adapters) {
         cardHost.textContent = "";
         appendCardGrid(cardHost, report.cards.overview);
         if (count) count.textContent = "已选项目分析 " + report.scope.selectedCount + "/" + formalReport.tables.projects.length;
+        replaceAnalyticsOperationalSections(document, elements.summary, report);
         return;
       }
     }
@@ -291,6 +553,7 @@ export function createBusinessAnalyticsReportView(adapters) {
     projects.appendChild(projectTitle);
     renderProjectTable(projects, report);
     elements.summary.append(executive, overview, projects);
+    renderAnalyticsOperationalSections(document, elements.summary, report);
   }
 
   return { mount, setDateRange, setDepartments, getQuery, renderState, renderResult, renderReport };

@@ -27,7 +27,27 @@ function rowsFor(map, projectId) {
   return map && map[projectId] ? map[projectId] : [];
 }
 
-function summarizeMilestones(rows, range) {
+function sourceRowsFor(input, field, project) {
+  return rowsFor(input[field], project.projectId).map(function (row) {
+    return Object.assign({}, row, {
+      projectId: project.projectId,
+      projectNo: project.projectNo,
+      projectName: project.projectName,
+      projectManagerName: project.projectManagerName || null
+    });
+  });
+}
+
+function sourceFailed(input, source, projectIds) {
+  const selected = projectIds ? new Set(projectIds.map(String)) : null;
+  return (input.sourceStatus || []).some(function (item) {
+    if (item.source !== source || item.status !== "failed") return false;
+    return item.projectId === null || item.projectId === undefined ||
+      !selected || selected.has(String(item.projectId));
+  });
+}
+
+function summarizeMilestones(rows, range, available = true) {
   const month = getEndMonthRange(range);
   const nearEnd = addCalendarDays(range.endDate, 7);
   const planned = rows.filter(function (row) {
@@ -43,18 +63,19 @@ function summarizeMilestones(rows, range) {
       row.planEndTime <= nearEnd;
   });
   return {
-    plannedCount: planned.length,
-    completedCount: completed.length,
-    completionRate: safeRatio(completed.length, planned.length),
-    overdueCount: overdue.length,
-    upcomingCount: upcoming.length,
+    available,
+    plannedCount: available ? planned.length : null,
+    completedCount: available ? completed.length : null,
+    completionRate: available ? safeRatio(completed.length, planned.length) : null,
+    overdueCount: available ? overdue.length : null,
+    upcomingCount: available ? upcoming.length : null,
     planned,
     overdue,
     upcoming
   };
 }
 
-function summarizeInvoices(rows, range) {
+function summarizeInvoices(rows, range, available = true) {
   const month = getEndMonthRange(range);
   const monthRows = rows.filter(function (row) {
     return row.planDate >= month.startDate && row.planDate <= month.endDate;
@@ -65,15 +86,32 @@ function summarizeInvoices(rows, range) {
   const overdue = rows.filter(function (row) {
     return known(row.pendingAmount) && row.pendingAmount > 0 && row.planDate < range.endDate;
   });
-  return { monthPlan, received, pending, overdueCount: overdue.length, overdue };
+  return {
+    available,
+    monthPlan: available ? monthPlan : null,
+    received: available ? received : null,
+    pending: available ? pending : null,
+    overdueCount: available ? overdue.length : null,
+    monthRows,
+    overdue
+  };
 }
 
 function buildProjectRows(input, sourceProjects, range) {
   const cumulative = calculateCumulativeMetrics(sourceProjects).projects;
   return cumulative.map(function (project) {
     const projectId = project.projectId;
-    const milestone = summarizeMilestones(rowsFor(input.milestonesByProject, projectId), range);
-    const invoice = summarizeInvoices(rowsFor(input.invoicesByProject, projectId), range);
+    const projectIds = [projectId];
+    const milestone = summarizeMilestones(
+      rowsFor(input.milestonesByProject, projectId),
+      range,
+      !sourceFailed(input, "milestones", projectIds)
+    );
+    const invoice = summarizeInvoices(
+      rowsFor(input.invoicesByProject, projectId),
+      range,
+      !sourceFailed(input, "invoices", projectIds) && !sourceFailed(input, "monthlyInvoices", projectIds)
+    );
     const interval = calculateInputMetrics({
       startDate: range.startDate,
       endDate: range.endDate,
@@ -172,7 +210,7 @@ function createCards(metrics, periodLabel) {
   };
 }
 
-function aggregateActive(projectRows, range) {
+function aggregateActive(input, projectRows, range) {
   const activeRows = projectRows.filter(function (row) {
     return isActiveProject(row.inputMd, row.previousInputMd);
   });
@@ -188,9 +226,37 @@ function aggregateActive(projectRows, range) {
       : sumKnown(activeRows, "nextPeriodPlannedMd") * 8
   });
   const risks = summarizeRisks(activeRows);
-  return Object.assign({ projectCount: activeRows.length, projects: activeRows }, interval, {
+  const projectIds = projectRows.map(function (row) { return row.projectId; });
+  const activeSetAvailable = !sourceFailed(input, "daily", projectIds) &&
+    !sourceFailed(input, "previousDaily", projectIds);
+  const wbsAvailable = activeSetAvailable && !sourceFailed(
+    input,
+    "wbs",
+    activeRows.map(function (row) { return row.projectId; })
+  );
+  const weeklyAvailable = activeSetAvailable && !sourceFailed(
+    input,
+    "weeklyReports",
+    activeRows.map(function (row) { return row.projectId; })
+  );
+  const result = Object.assign({ projectCount: activeRows.length, projects: activeRows }, interval, {
     riskItemCount: risks.itemCount
   });
+  if (!activeSetAvailable) {
+    ["projectCount", "inputHours", "inputMd", "inputCost", "previousInputMd", "previousInputCost",
+      "inputDelta", "costDelta", "monthPV", "monthEV", "monthSPI", "periodPV", "periodEV",
+      "periodSPI", "cumulativePV", "cumulativeEV", "totalSPI", "serviceEV", "periodCPI",
+      "periodCCPI", "periodPerCapita", "nextPeriodPlannedMd", "burnRatePerDay", "riskItemCount"]
+      .forEach(function (field) { result[field] = null; });
+    return result;
+  }
+  if (!wbsAvailable) {
+    ["monthPV", "monthEV", "monthSPI", "periodPV", "periodEV", "periodSPI", "cumulativePV",
+      "cumulativeEV", "totalSPI", "serviceEV", "periodCPI", "periodCCPI", "periodPerCapita"]
+      .forEach(function (field) { result[field] = null; });
+  }
+  if (!weeklyAvailable) result.nextPeriodPlannedMd = null;
+  return result;
 }
 
 function attachSourceRows(input, rows) {
@@ -298,15 +364,25 @@ export function createAnalyticsEngine() {
           projects: projectRows
         };
     const riskSummary = summarizeRisks(projectRows);
-    const active = aggregateActive(projectRows, range);
+    const selectedProjectIds = sourceProjects.map(function (project) { return project.projectId; });
+    const active = aggregateActive(input, projectRows, range);
     const allMilestones = sourceProjects.flatMap(function (project) {
-      return rowsFor(input.milestonesByProject, project.projectId);
+      return sourceRowsFor(input, "milestonesByProject", project);
     });
     const allInvoices = sourceProjects.flatMap(function (project) {
-      return rowsFor(input.invoicesByProject, project.projectId);
+      return sourceRowsFor(input, "invoicesByProject", project);
     });
-    const milestoneSummary = summarizeMilestones(allMilestones, range);
-    const invoiceSummary = summarizeInvoices(allInvoices, range);
+    const milestoneSummary = summarizeMilestones(
+      allMilestones,
+      range,
+      !sourceFailed(input, "milestones", selectedProjectIds)
+    );
+    const invoiceSummary = summarizeInvoices(
+      allInvoices,
+      range,
+      !sourceFailed(input, "invoices", selectedProjectIds) &&
+        !sourceFailed(input, "monthlyInvoices", selectedProjectIds)
+    );
     const labels = isNaturalWeek(range)
       ? { current: "本周", previous: "上周", next: "下周" }
       : { current: "本期", previous: "上期", next: "下期" };
