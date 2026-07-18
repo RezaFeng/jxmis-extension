@@ -3,6 +3,7 @@ import test from "node:test";
 import { createAnalyticsEngine } from "../../src/analytics/engine.js";
 import {
   filterProjectRows,
+  renderAnalyticsManagementSections,
   renderAnalyticsOperationalSections
 } from "../../src/content/business-analytics/report-view.js";
 
@@ -51,6 +52,14 @@ class FakeElement {
 
   append(...children) {
     children.forEach((child) => this.appendChild(child));
+  }
+
+  addEventListener(_type, listener) {
+    this.listener = listener;
+  }
+
+  click() {
+    if (this.listener) this.listener();
   }
 }
 
@@ -222,4 +231,73 @@ test("invoice view displays failed source values as unavailable", function () {
     /当月计划未获取已回款未获取待回款未获取逾期未回笔数未获取/
   );
   assert.doesNotMatch(section.textContent, /当月计划0/);
+});
+
+test("PM analytics renders manager aggregates and weekly execution", function () {
+  const report = createAnalyticsEngine().buildReport(analyticsInput({
+    weeklyByProject: {
+      P1: {
+        aggregate: {
+          summaries: [{
+            wkId: "WK-1",
+            startDate: "2026-07-06",
+            endDate: "2026-07-12",
+            summary: "完成联调",
+            nextPlan: "开始验收"
+          }],
+          currentExecutions: [{ taskName: "接口联调", majorPerson: "张三", realHour: 8 }]
+        }
+      }
+    }
+  }));
+  const host = new FakeElement("div");
+
+  renderAnalyticsManagementSections(fakeDocument, host, report, function () {});
+
+  assert.match(findByRole(host, "pm-analytics").textContent, /经理甲1/);
+  assert.match(findByRole(host, "weekly-execution").textContent, /2026-07-06 至 2026-07-12JX-1项目一经理甲完成联调开始验收/);
+  assert.match(findByRole(host, "weekly-execution").textContent, /接口联调张三8 小时/);
+});
+
+test("budget health renders project budget and exhaustion values", function () {
+  const report = createAnalyticsEngine().buildReport(analyticsInput());
+  const host = new FakeElement("div");
+
+  renderAnalyticsManagementSections(fakeDocument, host, report, function () {});
+
+  const section = findByRole(host, "budget-health");
+  assert.match(section.textContent, /JX-1项目一经理甲/);
+  assert.match(section.textContent, /50 万元/);
+  assert.match(section.textContent, /30 万元/);
+  assert.match(section.textContent, /2,100/);
+});
+
+test("data diagnostics renders coverage failures and retry action", function () {
+  const report = createAnalyticsEngine().buildReport(analyticsInput({
+    complete: false,
+    coverage: 0.75,
+    sourceStatus: [
+      { source: "daily", status: "success" },
+      { source: "wbs", projectId: "P1", status: "failed", error: "HTTP 500" }
+    ],
+    failedRequests: [{ source: "wbs", projectId: "P1", error: "HTTP 500" }],
+    diagnostics: {
+      historicalDepartments: [{ projectDept: "OLD", projectDeptName: "历史部门", projectCount: 2 }],
+      invoiceSupplement: { unmappedCount: 1, unmappedAmount: 100000, ambiguousCount: 0, ambiguousAmount: 0 },
+      replacedWeeklyReportIds: ["WK-OLD"]
+    }
+  }));
+  const actions = [];
+  const host = new FakeElement("div");
+
+  renderAnalyticsManagementSections(fakeDocument, host, report, function (action) { actions.push(action); });
+
+  const section = findByRole(host, "data-diagnostics");
+  assert.match(section.textContent, /来源覆盖率75%/);
+  assert.match(section.textContent, /wbsP1HTTP 500/);
+  assert.match(findByRole(section, "historical-departments").textContent, /OLD历史部门2/);
+  assert.match(section.textContent, /未映射回款1 笔，10 万元/);
+  assert.match(section.textContent, /替代周报WK-OLD/);
+  findByRole(section, "retry-failed").click();
+  assert.deepEqual(actions, ["retry-failed"]);
 });

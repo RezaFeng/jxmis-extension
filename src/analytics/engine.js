@@ -328,6 +328,26 @@ function buildBudgetRows(projectRows) {
   });
 }
 
+function buildWeeklyExecution(input, projectRows) {
+  if (Array.isArray(input.weeklyExecution)) return input.weeklyExecution;
+  return projectRows.flatMap(function (project) {
+    const source = input.weeklyByProject && input.weeklyByProject[project.projectId];
+    const aggregate = source && source.aggregate || {};
+    return (aggregate.summaries || []).map(function (summary) {
+      return Object.assign({}, summary, {
+        projectId: project.projectId,
+        projectNo: project.projectNo,
+        projectName: project.projectName,
+        projectManagerName: project.projectManagerName,
+        inputMd: project.inputMd,
+        inputCost: project.inputCost,
+        periodSPI: project.periodSPI,
+        details: aggregate.currentExecutions || []
+      });
+    });
+  });
+}
+
 export function createAnalyticsEngine() {
   function buildReport(input) {
     if (!input || typeof input !== "object") {
@@ -425,8 +445,12 @@ export function createAnalyticsEngine() {
         invoices: invoiceSummary,
         projectManagers: buildPmRows(projectRows),
         budgetHealth: buildBudgetRows(projectRows),
-        weeklyExecution: input.weeklyExecution || [],
-        diagnostics: input.diagnostics || {}
+        weeklyExecution: buildWeeklyExecution(input, projectRows),
+        diagnostics: Object.assign({}, input.diagnostics || {}, {
+          coverage: known(input.coverage) ? input.coverage : input.complete === true ? 1 : null,
+          sourceStatus: input.sourceStatus || [],
+          failedRequests: input.failedRequests || []
+        })
       }
     };
   }

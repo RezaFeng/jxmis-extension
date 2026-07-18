@@ -104,6 +104,19 @@ export function createBusinessAnalyticsController(adapters) {
     view.renderState({ kind: "initial", status: "已取消" });
   }
 
+  function retryFailed() {
+    if (!lastQuery || !formalInput || !(formalInput.failedRequests || []).length) return;
+    view.renderState({ kind: "loading", message: "正在重试失败数据源..." });
+    send(MESSAGE_TYPES.ANALYTICS_REQUEST, Object.assign({}, lastQuery, {
+      retryFailed: true,
+      previous: formalInput,
+      projectFilters: config.projectFilters,
+      riskThresholds: config.riskThresholds,
+      configVersion: config.configVersion,
+      policyVersion: config.policyVersion
+    }));
+  }
+
   function handleAction(action) {
     if (action === "close") {
       cancel();
@@ -113,6 +126,7 @@ export function createBusinessAnalyticsController(adapters) {
     if (action === "refresh" && lastQuery) query(true);
     if (action === "cancel") cancel();
     if (action === "settings") chrome.runtime.openOptionsPage();
+    if (action === "retry-failed") retryFailed();
   }
 
   function selectProjects(projectIds) {
@@ -190,6 +204,6 @@ export function createBusinessAnalyticsController(adapters) {
   }
 
   window.addEventListener("message", handlePageMessage);
-  controller = { open, query, cancel, handleAction, selectProjects, ensureNavigation, syncLocation };
+  controller = { open, query, retryFailed, cancel, handleAction, selectProjects, ensureNavigation, syncLocation };
   return controller;
 }

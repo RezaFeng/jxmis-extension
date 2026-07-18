@@ -30,11 +30,15 @@ export function installBusinessAnalyticsPage(adapters) {
       return;
     }
     activeRequestId = message.requestId;
-    collector.collect(message, function (progress) {
+    const onProgress = function (progress) {
       if (activeRequestId === message.requestId) {
         post(MESSAGE_TYPES.ANALYTICS_PROGRESS, message.requestId, { progress });
       }
-    }).then(function (result) {
+    };
+    const operation = message.retryFailed === true && message.previous
+      ? collector.retryFailed(message, message.previous, onProgress)
+      : collector.collect(message, onProgress);
+    operation.then(function (result) {
       if (activeRequestId === message.requestId) {
         post(MESSAGE_TYPES.ANALYTICS_RESULT, message.requestId, { result });
       }

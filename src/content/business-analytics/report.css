@@ -38,6 +38,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .operational-list[data-role^="milestone-"] table { min-width: 980px; }
 .operational-list[data-role^="invoice-"] table { min-width: 1240px; }
 .diagnostic-note { margin: 14px 0 0; padding-left: 10px; border-left: 3px solid #677887; color: #52606c; }
+[data-role="pm-analytics"] table { min-width: 1120px; }
+[data-role="budget-health"] table { min-width: 1420px; }
+[data-role="weekly-execution"] table { min-width: 1320px; }
+.coverage-summary { margin: 0 0 12px; font-size: 16px; font-weight: 650; }
+[data-role="data-diagnostics"] > button { margin-top: 14px; }
 .project-filters { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(120px, 160px)) auto auto; gap: 8px; align-items: center; margin-bottom: 12px; }
 .project-filters span { color: #5b6670; white-space: nowrap; }
 .table-scroll { width: 100%; overflow-x: auto; border: 1px solid #d5dbe1; background: #fff; }

@@ -262,10 +262,126 @@ export function renderAnalyticsOperationalSections(document, container, report) 
   container.appendChild(invoice);
 }
 
+function diagnosticList(document, container, title, role, columns, rows, emptyLabel) {
+  appendOperationalList(document, container, title, role, columns, rows, emptyLabel);
+}
+
+export function renderAnalyticsManagementSections(document, container, report, onAction = function () {}) {
+  const pm = createOperationalSection(document, "项目经理维度", "pm-analytics");
+  appendOperationalTable(document, pm, [
+    { key: "projectManagerName", label: "PM" },
+    { key: "projectCount", label: "项目数", format: "number" },
+    { key: "contractAmount", label: "合同金额", format: "money" },
+    { key: "revenue", label: "收入", format: "money" },
+    { key: "progress", label: "进度", format: "percent" },
+    { key: "ac", label: "成本", format: "money" },
+    { key: "perCapita", label: "人均产值", format: "money" },
+    { key: "cpi", label: "CPI", format: "ratio" },
+    { key: "ccpi", label: "CCPI", format: "ratio" }
+  ], report.tables.projectManagers, "无项目经理数据");
+  container.appendChild(pm);
+
+  const budget = createOperationalSection(document, "预算健康度", "budget-health");
+  appendOperationalTable(document, budget, [
+    { key: "projectNo", label: "编码" },
+    { key: "projectName", label: "项目名称" },
+    { key: "projectManagerName", label: "PM" },
+    { key: "wbsBudget", label: "WBS预算", format: "money" },
+    { key: "bac", label: "BAC", format: "money" },
+    { key: "budgetVariance", label: "预算偏差", format: "money" },
+    { key: "ac", label: "AC", format: "money" },
+    { key: "remainingBudget", label: "剩余预算", format: "money" },
+    { key: "periodCost", label: "期间消耗", format: "money" },
+    { key: "burnRatePerDay", label: "日均消耗", format: "money" },
+    { key: "estimatedExhaustionDays", label: "预计耗尽天数", format: "number" }
+  ], report.tables.budgetHealth, "无预算数据");
+  container.appendChild(budget);
+
+  const weekly = createOperationalSection(document, "各项目周期执行情况", "weekly-execution");
+  appendOperationalTable(document, weekly, [
+    {
+      label: "周期",
+      value: function (row) { return row.startDate && row.endDate ? row.startDate + " 至 " + row.endDate : null; }
+    },
+    { key: "projectNo", label: "编码" },
+    { key: "projectName", label: "项目名称" },
+    { key: "projectManagerName", label: "PM" },
+    { key: "summary", label: "总结" },
+    { key: "nextPlan", label: "计划" },
+    { key: "inputMd", label: "投入人天", format: "number" },
+    { key: "inputCost", label: "投入成本", format: "money" },
+    { key: "periodSPI", label: "SPI", format: "ratio" }
+  ], report.tables.weeklyExecution, "当前范围无周期执行数据");
+  (report.tables.weeklyExecution || []).forEach(function (row) {
+    if (!(row.details || []).length) return;
+    const details = document.createElement("details");
+    details.className = "execution-details";
+    const summary = document.createElement("summary");
+    summary.textContent = (row.projectNo || "未获取") + " " + row.startDate + " 至 " + row.endDate + " 执行明细";
+    details.appendChild(summary);
+    row.details.forEach(function (item) {
+      const line = document.createElement("p");
+      const hours = item.realHour ?? item.planHour;
+      line.textContent = (item.taskName || item.detailName || "未获取") +
+        (item.majorPerson || item.personName || "未获取") +
+        (hours === null || hours === undefined ? "未获取" : hours + " 小时");
+      details.appendChild(line);
+    });
+    weekly.appendChild(details);
+  });
+  container.appendChild(weekly);
+
+  const diagnostics = createOperationalSection(document, "数据完整性与诊断", "data-diagnostics");
+  const meta = report.tables.diagnostics || {};
+  const coverage = document.createElement("p");
+  coverage.className = "coverage-summary";
+  coverage.textContent = "来源覆盖率" + (meta.coverage === null || meta.coverage === undefined
+    ? "未获取"
+    : Math.round(meta.coverage * 100) + "%");
+  diagnostics.appendChild(coverage);
+  diagnosticList(document, diagnostics, "失败项目", "failed-sources", [
+    { key: "source", label: "来源" },
+    { key: "projectId", label: "项目ID" },
+    { key: "error", label: "错误" }
+  ], meta.failedRequests, "无失败项");
+  diagnosticList(document, diagnostics, "历史部门", "historical-departments", [
+    { key: "projectDept", label: "部门ID" },
+    { key: "projectDeptName", label: "部门名称" },
+    { key: "projectCount", label: "项目数", format: "number" }
+  ], meta.historicalDepartments, "无历史部门");
+  const supplement = meta.invoiceSupplement || {};
+  const invoiceDiagnostic = document.createElement("p");
+  invoiceDiagnostic.textContent = "未映射回款" + (supplement.unmappedCount || 0) + " 笔，" +
+    formatOperationalValue(supplement.unmappedAmount || 0, "money");
+  diagnostics.appendChild(invoiceDiagnostic);
+  const replaced = document.createElement("p");
+  replaced.textContent = "替代周报" + ((meta.replacedWeeklyReportIds || []).join("、") || "无");
+  diagnostics.appendChild(replaced);
+  if ((meta.failedRequests || []).length > 0) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.dataset.role = "retry-failed";
+    retry.textContent = "仅重试失败项";
+    retry.addEventListener("click", function () { onAction("retry-failed"); });
+    diagnostics.appendChild(retry);
+  }
+  container.appendChild(diagnostics);
+}
+
 function replaceAnalyticsOperationalSections(document, container, report) {
   const replacementHost = document.createElement("div");
   renderAnalyticsOperationalSections(document, replacementHost, report);
   ["active-projects", "milestone-view", "invoice-view"].forEach(function (role) {
+    const current = container.querySelector('[data-role="' + role + '"]');
+    const replacement = replacementHost.querySelector('[data-role="' + role + '"]');
+    if (current && replacement) current.replaceWith(replacement);
+  });
+}
+
+function replaceAnalyticsManagementSections(document, container, report, onAction) {
+  const replacementHost = document.createElement("div");
+  renderAnalyticsManagementSections(document, replacementHost, report, onAction);
+  ["pm-analytics", "budget-health", "weekly-execution", "data-diagnostics"].forEach(function (role) {
     const current = container.querySelector('[data-role="' + role + '"]');
     const replacement = replacementHost.querySelector('[data-role="' + role + '"]');
     if (current && replacement) current.replaceWith(replacement);
@@ -522,6 +638,7 @@ export function createBusinessAnalyticsReportView(adapters) {
         appendCardGrid(cardHost, report.cards.overview);
         if (count) count.textContent = "已选项目分析 " + report.scope.selectedCount + "/" + formalReport.tables.projects.length;
         replaceAnalyticsOperationalSections(document, elements.summary, report);
+        replaceAnalyticsManagementSections(document, elements.summary, report, adapters.onAction);
         return;
       }
     }
@@ -554,6 +671,7 @@ export function createBusinessAnalyticsReportView(adapters) {
     renderProjectTable(projects, report);
     elements.summary.append(executive, overview, projects);
     renderAnalyticsOperationalSections(document, elements.summary, report);
+    renderAnalyticsManagementSections(document, elements.summary, report, adapters.onAction);
   }
 
   return { mount, setDateRange, setDepartments, getQuery, renderState, renderResult, renderReport };
