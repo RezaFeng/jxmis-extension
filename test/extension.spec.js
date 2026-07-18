@@ -251,5 +251,10 @@ test("business analytics options page remains available", async function () {
   const page = await context.newPage();
   await page.goto("chrome-extension://" + extensionId + "/options.html");
   await expect(page.getByRole("heading", { name: "扩展设置" })).toBeVisible();
+  const clearCache = page.getByRole("button", { name: "清理原始缓存" });
+  await expect(clearCache).toBeEnabled();
+  page.once("dialog", function (dialog) { dialog.accept(); });
+  await clearCache.click();
+  await expect(page.getByRole("status")).toHaveText("经营分析原始缓存已清理。");
   await page.close();
 });

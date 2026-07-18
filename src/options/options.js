@@ -41,7 +41,8 @@ export function startOptions(adapters) {
   const chrome = adapters.chrome;
   const fields = Object.fromEntries([
     "provider", "baseUrl", "apiKey", "model", "enableThinking", "projectManager",
-    "systemPrompt", "modelList", "refreshModels", "save", "restoreAnalytics", "status"
+    "systemPrompt", "modelList", "refreshModels", "save", "restoreAnalytics", "status",
+    "clearAnalyticsCache", "clearAnalyticsHistory"
   ].map(function (id) { return [id, document.getElementById(id)]; }));
   let dirty = false;
 
@@ -181,6 +182,27 @@ export function startOptions(adapters) {
     }
   }
 
+  async function clearAnalyticsData(type, confirmation, successMessage) {
+    if (!window.confirm(confirmation)) return;
+    fields.clearAnalyticsCache.disabled = true;
+    fields.clearAnalyticsHistory.disabled = true;
+    try {
+      const response = await sendMessage({
+        type,
+        requestId: "options-" + window.crypto.randomUUID()
+      });
+      if (!response || !response.ok) {
+        throw new Error((response && response.error) || "清理失败");
+      }
+      setStatus(successMessage, "ok");
+    } catch (error) {
+      setStatus(error && error.message ? error.message : String(error), "error");
+    } finally {
+      fields.clearAnalyticsCache.disabled = false;
+      fields.clearAnalyticsHistory.disabled = false;
+    }
+  }
+
   renderFilterFields();
   document.addEventListener("input", function () { dirty = true; });
   document.addEventListener("change", function (event) {
@@ -194,6 +216,20 @@ export function startOptions(adapters) {
   });
   fields.save.addEventListener("click", function () { save().catch(function () {}); });
   fields.refreshModels.addEventListener("click", refreshModels);
+  fields.clearAnalyticsCache.addEventListener("click", function () {
+    clearAnalyticsData(
+      MESSAGE_TYPES.ANALYTICS_CLEAR_CACHE,
+      "确定清理经营分析原始缓存和失败重试记录？完整历史不受影响。",
+      "经营分析原始缓存已清理。"
+    );
+  });
+  fields.clearAnalyticsHistory.addEventListener("click", function () {
+    clearAnalyticsData(
+      MESSAGE_TYPES.ANALYTICS_CLEAR_HISTORY,
+      "确定清理经营分析全部完整快照和指标历史？此操作无法撤销。",
+      "经营分析全部历史已清理。"
+    );
+  });
   fields.restoreAnalytics.addEventListener("click", function () {
     setFilters(DEFAULT_PROJECT_FILTERS);
     Object.entries(DEFAULT_RISK_THRESHOLDS).forEach(function ([field, value]) {
