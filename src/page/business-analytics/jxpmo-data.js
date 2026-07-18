@@ -74,16 +74,56 @@ export function createJxpmoAnalyticsData(adapters) {
   const pageSize = adapters.pageSize || DEFAULT_PAGE_SIZE;
   const baseUrl = function () { return getBaseUrl(location, storage); };
 
+  function sessionExpired() {
+    const error = new Error("SESSION_EXPIRED");
+    error.code = "SESSION_EXPIRED";
+    return error;
+  }
+
+  async function fetchAnalyticsJson(url, label, signal) {
+    const payload = await fetchJson(
+      async function (requestUrl, options) {
+        const response = await fetchFn(requestUrl, Object.assign({}, options, { signal }));
+        const responseUrl = String(response && response.url || "");
+        const contentType = response && response.headers && response.headers.get
+          ? String(response.headers.get("content-type") || "")
+          : "";
+        let loginHtml = false;
+        if (/text\/html/i.test(contentType) && response && typeof response.clone === "function") {
+          const text = await response.clone().text().catch(function () { return ""; });
+          loginHtml = /登录|login|JSESSIONID|signin/i.test(text);
+        }
+        if (
+          (response && [302, 401, 403].includes(response.status)) ||
+          (response && response.redirected && /login|signin/i.test(responseUrl)) ||
+          loginHtml
+        ) {
+          throw sessionExpired();
+        }
+        return response;
+      },
+      url,
+      label
+    );
+    if (
+      (payload && [401, 403, "401", "403", "SESSION_EXPIRED"].includes(payload.code)) ||
+      (payload && payload.success === false && /登录|login|session/i.test(String(payload.message || payload.msg || "")))
+    ) {
+      throw sessionExpired();
+    }
+    return payload;
+  }
+
   async function fetchDepartments(signal) {
     const params = new URLSearchParamsCtor({
       unitQueryType: "selfAndChild",
       selection: "single",
       id: "10000"
     });
-    return fetchJson(
-      function (url, options) { return fetchFn(url, Object.assign({}, options, { signal })); },
+    return fetchAnalyticsJson(
       baseUrl() + "/rest/org/tree/unitTree?" + params.toString(),
-      "fetch analytics departments"
+      "fetch analytics departments",
+      signal
     );
   }
 
@@ -102,10 +142,10 @@ export function createJxpmoAnalyticsData(adapters) {
         length: String(page.pageSize),
         rows: String(page.pageSize)
       }));
-      return fetchJson(
-        function (url, options) { return fetchFn(url, Object.assign({}, options, { signal })); },
+      return fetchAnalyticsJson(
         baseUrl() + "/rest/project/ProjectInfoService/query?" + params.toString(),
-        "fetch analytics projects page " + page.page
+        "fetch analytics projects page " + page.page,
+        signal
       );
     }, { pageSize });
     const byId = new Map();
@@ -127,10 +167,10 @@ export function createJxpmoAnalyticsData(adapters) {
         length: String(page.pageSize),
         rows: String(page.pageSize)
       }));
-      return fetchJson(
-        function (url, options) { return fetchFn(url, Object.assign({}, options, { signal })); },
+      return fetchAnalyticsJson(
         baseUrl() + path + "?" + query.toString(),
-        label + " page " + page.page
+        label + " page " + page.page,
+        signal
       );
     }, { pageSize });
     return rows;
@@ -178,10 +218,10 @@ export function createJxpmoAnalyticsData(adapters) {
       queryName: "queryByProjectInfo",
       wkId: String(wkId)
     });
-    return fetchJson(
-      function (url, options) { return fetchFn(url, Object.assign({}, options, { signal })); },
+    return fetchAnalyticsJson(
       baseUrl() + "/rest/project/queryByProjectInfosService/query?" + query.toString(),
-      "fetch analytics weekly detail " + wkId
+      "fetch analytics weekly detail " + wkId,
+      signal
     );
   }
 

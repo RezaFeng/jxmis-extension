@@ -43,6 +43,10 @@ test("requires request ids for request-response message types", function () {
     type: protocol.MESSAGE_TYPES.ANALYTICS_GET_LATEST,
     reportKey: "R1"
   }).ok, false);
+  assert.equal(protocol.parseMessage({
+    source: protocol.SOURCES.ANALYTICS_CONTENT,
+    type: protocol.MESSAGE_TYPES.ANALYTICS_REQUEST
+  }).ok, false);
 });
 
 test("rejects wrong sources, types, and window senders", function () {

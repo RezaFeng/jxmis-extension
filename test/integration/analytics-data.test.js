@@ -118,3 +118,20 @@ test("analytics data distinguishes empty WBS and normalizes milestone completion
     confirmStatus: "2"
   });
 });
+
+test("analytics data identifies redirected HTML sessions", async function () {
+  const data = createJxpmoAnalyticsData({
+    location: { origin: "https://jxmis.example.com" },
+    storage: { getItem: function () { return "/jxpmo"; } },
+    fetch: async function () {
+      return {
+        ok: true,
+        status: 200,
+        redirected: true,
+        url: "https://jxmis.example.com/jxpmo/login",
+        headers: { get: function () { return "text/html"; } }
+      };
+    }
+  });
+  await assert.rejects(data.fetchDepartments(), /SESSION_EXPIRED/);
+});

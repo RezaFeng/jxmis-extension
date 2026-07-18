@@ -45,7 +45,8 @@
       "resources": [
         "page-daily-approval.js",
         "page-batch-work.js",
-        "page-weekly-approval.js"
+        "page-weekly-approval.js",
+        "page-business-analytics.js"
       ],
       "matches": [
         "https://jxmis.cyberwing.cn/*"
