@@ -227,6 +227,7 @@ test("analytics data distinguishes empty WBS and normalizes milestone completion
     fetch: async function (url) {
       const query = new URL(url).searchParams;
       if (query.get("queryName") === "queryLandmark") {
+        assert.equal(query.get("refCols"), "default");
         return { ok: true, json: async function () { return { rows: [{
           detailId: "M1",
           detailName: "上线",

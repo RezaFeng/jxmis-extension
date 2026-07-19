@@ -265,7 +265,7 @@ export function createJxpmoAnalyticsData(adapters) {
     const id = String(projectId);
     const rows = await fetchPagedEndpoint(
       "/rest/project/ProjectPlanDetailService/query",
-      { queryName: "queryLandmark", projectId: id },
+      { refCols: "default", queryName: "queryLandmark", projectId: id },
       "fetch analytics milestones " + id,
       signal
     );
