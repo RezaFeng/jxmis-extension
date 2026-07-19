@@ -33,6 +33,7 @@ function input(departmentId, departmentName, projects) {
     previousDailyByProject: Object.fromEntries(projects.map(function (item) { return [item.projectId, []]; })),
     wbsByProject: Object.fromEntries(projects.map(function (item) { return [item.projectId, []]; })),
     milestonesByProject: Object.fromEntries(projects.map(function (item) { return [item.projectId, []]; })),
+    invoiceRows: [],
     invoicesByProject: Object.fromEntries(projects.map(function (item) { return [item.projectId, []]; })),
     weeklyByProject: {},
     nextPlannedHoursByProject: Object.fromEntries(projects.map(function (item) { return [item.projectId, 0]; })),
@@ -50,6 +51,18 @@ test("company analytics deduplicates one live result and recomputes department r
     Object.assign({}, shared, { projectDept: "D2" }),
     project("P2", 300, 150, 75, "D2")
   ]);
+  liveInput.invoiceRows = [{
+    detailId: "I1",
+    planId: "PLAN-1",
+    projectId: "P2",
+    salesDepartmentName: "一部",
+    planDate: "2026-07-10",
+    planAmount: 100,
+    receivedFlag: "0",
+    receivedAmount: 0,
+    pendingAmount: 100,
+    valid: true
+  }];
 
   const report = createAnalyticsEngine().buildCompanyReport({
     liveInput,
@@ -69,6 +82,7 @@ test("company analytics deduplicates one live result and recomputes department r
   assert.equal(report.metrics.overview.bac, 300);
   assert.equal(report.metrics.overview.ac, 150);
   assert.equal(report.metrics.overview.cpi, 1);
+  assert.equal(report.metrics.invoice.monthPlan, 100);
   assert.equal(report.company.coverage, 1);
   assert.equal(report.company.complete, true);
   assert.deepEqual(report.company.missingDepartmentIds, []);
@@ -76,8 +90,14 @@ test("company analytics deduplicates one live result and recomputes department r
     return item.departmentId === "D1";
   }).projectCount, 2);
   assert.equal(report.company.departments.find(function (item) {
+    return item.departmentId === "D1";
+  }).metrics.invoice.monthPlan, 100);
+  assert.equal(report.company.departments.find(function (item) {
     return item.departmentId === "D2";
   }).projectCount, 1);
+  assert.equal(report.company.departments.find(function (item) {
+    return item.departmentId === "D2";
+  }).metrics.invoice.monthPlan, 0);
   assert.equal(report.company.departments.find(function (item) {
     return item.departmentId === "D3";
   }).status, "ready");

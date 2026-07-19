@@ -83,18 +83,70 @@ function summarizeInvoices(rows, range, available = true) {
   const month = getEndMonthRange(range);
   const monthRows = rows.filter(function (row) {
     return row.planDate >= month.startDate && row.planDate <= month.endDate;
+  }).sort(function (a, b) {
+    return String(a.planDate || "").localeCompare(String(b.planDate || "")) ||
+      String(a.contractNo || "").localeCompare(String(b.contractNo || "")) ||
+      String(a.invoiceBatch || "").localeCompare(String(b.invoiceBatch || ""), undefined, { numeric: true });
   });
-  const monthPlan = sumKnown(monthRows, "planAmount");
-  const received = sumKnown(monthRows, "receivedAmount");
-  const pending = monthPlan !== null && received !== null ? Math.max(monthPlan - received, 0) : null;
-  const overdue = rows.filter(function (row) {
-    return known(row.pendingAmount) && row.pendingAmount > 0 && row.planDate < range.endDate;
+  const validMonthRows = monthRows.filter(function (row) { return row.valid !== false; });
+  const monthPlan = sumKnown(validMonthRows, "planAmount");
+  const received = sumKnown(validMonthRows, "receivedAmount");
+  const pending = sumKnown(validMonthRows, "pendingAmount");
+  const groupByPlan = function (sourceRows) {
+    const groups = new Map();
+    sourceRows.forEach(function (row, index) {
+      const key = String(row.planId ?? row.invoiceId ?? row.detailId ?? "row-" + index);
+      const group = groups.get(key) || { planId: key, rows: [] };
+      group.rows.push(row);
+      groups.set(key, group);
+    });
+    return [...groups.values()].map(function (group) {
+      return Object.assign(group, {
+        planAmount: sumKnown(group.rows, "planAmount"),
+        receivedAmount: sumKnown(group.rows, "receivedAmount"),
+        pendingAmount: sumKnown(group.rows, "pendingAmount")
+      });
+    });
+  };
+  const monthGroups = groupByPlan(validMonthRows);
+  const overdueGroups = groupByPlan(rows.filter(function (row) {
+    const unpaid = row.receivedFlag === "0" ||
+      (row.receivedFlag === undefined && known(row.pendingAmount));
+    return row.valid !== false && unpaid && row.planDate < range.endDate;
+  })).filter(function (group) {
+    return known(group.pendingAmount) && group.pendingAmount > 0;
+  });
+  const overdue = overdueGroups.map(function (group) {
+    const details = group.rows.slice().sort(function (a, b) {
+      return String(a.planDate || "").localeCompare(String(b.planDate || "")) ||
+        String(a.invoiceBatch || "").localeCompare(String(b.invoiceBatch || ""), undefined, { numeric: true });
+    });
+    return Object.assign({}, details[0], {
+      planId: group.planId,
+      planDate: details.map(function (row) { return row.planDate; }).filter(Boolean).sort()[0] || null,
+      planAmount: group.planAmount,
+      receivedAmount: group.receivedAmount,
+      pendingAmount: group.pendingAmount,
+      details
+    });
+  }).sort(function (a, b) {
+    return String(a.planDate || "").localeCompare(String(b.planDate || "")) ||
+      String(a.contractNo || "").localeCompare(String(b.contractNo || ""));
   });
   return {
     available,
     monthPlan: available ? monthPlan : null,
     received: available ? received : null,
     pending: available ? pending : null,
+    plannedCount: available ? monthGroups.filter(function (group) {
+      return known(group.planAmount) && group.planAmount !== 0;
+    }).length : null,
+    receivedCount: available ? monthGroups.filter(function (group) {
+      return known(group.receivedAmount) && group.receivedAmount !== 0;
+    }).length : null,
+    receivedRate: available && known(monthPlan) && monthPlan > 0 && known(received)
+      ? received / monthPlan
+      : null,
     overdueCount: available ? overdue.length : null,
     monthRows,
     overdue
@@ -114,7 +166,7 @@ function buildProjectRows(input, sourceProjects, range) {
     const invoice = summarizeInvoices(
       rowsFor(input.invoicesByProject, projectId),
       range,
-      !sourceFailed(input, "invoices", projectIds) && !sourceFailed(input, "monthlyInvoices", projectIds)
+      !sourceFailed(input, "invoices", projectIds)
     );
     const interval = calculateInputMetrics({
       startDate: range.startDate,
@@ -165,6 +217,10 @@ function createCards(metrics, periodLabel) {
   const active = metrics.active;
   const milestone = metrics.milestone;
   const invoice = metrics.invoice;
+  const invoicePlanCard = card("invoiceMonthPlan", "当月计划", invoice.monthPlan, "money");
+  invoicePlanCard.note = { count: invoice.plannedCount };
+  const invoiceReceivedCard = card("invoiceReceived", "已回款", invoice.received, "money");
+  invoiceReceivedCard.note = { count: invoice.receivedCount, rate: invoice.receivedRate };
   return {
     overview: [
       card("projectCount", "项目数", overview.projectCount),
@@ -206,8 +262,8 @@ function createCards(metrics, periodLabel) {
       card("milestoneOverdue", "已逾期", milestone.overdueCount)
     ],
     invoice: [
-      card("invoiceMonthPlan", "当月计划", invoice.monthPlan, "money"),
-      card("invoiceReceived", "已回款", invoice.received, "money"),
+      invoicePlanCard,
+      invoiceReceivedCard,
       card("invoicePending", "待回款", invoice.pending, "money"),
       card("invoiceOverdue", "逾期未回笔数", invoice.overdueCount)
     ]
@@ -332,8 +388,22 @@ const INVOICE_COMPARISON_FIELDS = Object.freeze([
   "monthPlan",
   "received",
   "pending",
+  "receivedRate",
   "overdueCount"
 ]);
+
+function invoiceRowsForScope(input, sourceProjects, selectedIds) {
+  if (!Array.isArray(input.invoiceRows)) {
+    return sourceProjects.flatMap(function (project) {
+      return sourceRowsFor(input, "invoicesByProject", project);
+    });
+  }
+  if (!selectedIds || input.invoiceRowsAreScoped === true) return input.invoiceRows;
+  const projectIds = new Set(sourceProjects.map(function (project) { return String(project.projectId); }));
+  return input.invoiceRows.filter(function (row) {
+    return row.projectId !== null && row.projectId !== undefined && projectIds.has(String(row.projectId));
+  });
+}
 
 function buildPmRows(projectRows) {
   const groups = new Map();
@@ -442,9 +512,7 @@ export function createAnalyticsEngine() {
     const allMilestones = sourceProjects.flatMap(function (project) {
       return sourceRowsFor(input, "milestonesByProject", project);
     });
-    const allInvoices = sourceProjects.flatMap(function (project) {
-      return sourceRowsFor(input, "invoicesByProject", project);
-    });
+    const allInvoices = invoiceRowsForScope(input, sourceProjects, selectedIds);
     const milestoneSummary = summarizeMilestones(
       allMilestones,
       range,
@@ -455,22 +523,15 @@ export function createAnalyticsEngine() {
       previousRange,
       !sourceFailed(input, "milestones", selectedProjectIds)
     );
-    const currentMonth = getEndMonthRange(range);
-    const previousMonth = getEndMonthRange(previousRange);
-    const previousInvoiceSource = currentMonth.startDate === previousMonth.startDate
-      ? "monthlyInvoices"
-      : "previousMonthlyInvoices";
     const invoiceSummary = summarizeInvoices(
       allInvoices,
       range,
-      !sourceFailed(input, "invoices", selectedProjectIds) &&
-        !sourceFailed(input, "monthlyInvoices", selectedProjectIds)
+      !sourceFailed(input, "invoices", selectedProjectIds)
     );
     const previousInvoiceSummary = summarizeInvoices(
       allInvoices,
       previousRange,
-      !sourceFailed(input, "invoices", selectedProjectIds) &&
-        !sourceFailed(input, previousInvoiceSource, selectedProjectIds)
+      !sourceFailed(input, "invoices", selectedProjectIds)
     );
     const labels = isNaturalWeek(range)
       ? { current: "本周", previous: "上周", next: "下周" }
@@ -581,6 +642,10 @@ export function createAnalyticsEngine() {
         departmentId,
         departmentName: department.name,
         selectedProjectIds: projectIds,
+        invoiceRows: (liveInput.invoiceRows || []).filter(function (row) {
+          return String(row.salesDepartmentName || "") === String(department.name || "");
+        }),
+        invoiceRowsAreScoped: true,
         complete: !failed
       }));
       return {

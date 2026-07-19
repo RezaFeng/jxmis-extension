@@ -38,6 +38,20 @@ function appendOperationalCards(document, container, cards) {
       if (value.status === "unavailable") number.className = "unavailable";
       item.appendChild(number);
     });
+    if (card.note) {
+      const note = document.createElement("small");
+      const parts = [];
+      parts.push(card.note.count === null || card.note.count === undefined
+        ? "笔数未获取"
+        : card.note.count + " 笔");
+      if (Object.prototype.hasOwnProperty.call(card.note, "rate")) {
+        parts.push("回款率 " + (card.note.rate === null || card.note.rate === undefined
+          ? "-"
+          : formatOperationalValue(card.note.rate, "percent")));
+      }
+      note.textContent = parts.join(" · ");
+      item.appendChild(note);
+    }
     grid.appendChild(item);
   });
   container.appendChild(grid);
@@ -129,6 +143,7 @@ const COMPARISON_GROUPS = Object.freeze([
       ["monthPlan", "结束月计划", "money"],
       ["received", "实收", "money"],
       ["pending", "待回", "money"],
+      ["receivedRate", "回款率", "percent"],
       ["overdueCount", "逾期笔数", "number"]
     ])
   })
@@ -240,38 +255,86 @@ function milestoneColumns(endDate) {
 
 function invoiceColumns(endDate) {
   return [
-    { key: "projectNo", label: "编码" },
-    { key: "projectName", label: "项目名称" },
-    { key: "projectManagerName", label: "PM" },
     { key: "contractNo", label: "合同编号" },
-    { key: "planDate", label: "计划回款日" },
+    {
+      label: "项目名称",
+      value: function (row) {
+        const projectName = row.projectName || "未找到对应项目";
+        return row.contractName && row.contractName !== projectName
+          ? projectName + " / " + row.contractName
+          : projectName;
+      }
+    },
+    { key: "projectManagerName", label: "项目经理" },
+    { key: "customerName", label: "客户" },
+    { key: "paymentNature", label: "款项性质" },
     { key: "planAmount", label: "计划金额", format: "money" },
     { key: "receivedAmount", label: "已回款", format: "money" },
     { key: "pendingAmount", label: "待回款", format: "money" },
+    { key: "planDate", label: "计划回款日" },
     {
-      label: "距截止日",
+      label: "实际回款日",
+      value: function (row) { return row.receivedFlag === "0" ? "-" : row.realReceivedDate; }
+    },
+    {
+      label: "状态",
       value: function (row) {
-        return row.pendingAmount > 0 ? relativeDateLabel(row.planDate, endDate, false) : "-";
+        if (row.valid === false) return "数据异常";
+        const status = row.receivedFlag === "1" ? "已回款" : "待回款";
+        const reversal = row.redReversal === "是" ? "（红冲）" : "";
+        const relative = row.pendingAmount > 0 ? " · " + relativeDateLabel(row.planDate, endDate, false) : "";
+        return status + reversal + relative;
       }
     }
   ];
+}
+
+function diagnosticIdentifiers(rows, value) {
+  return (rows || []).map(value).filter(Boolean).slice(0, 8).join("、") || "无";
 }
 
 function appendInvoiceDiagnostics(document, container, report) {
   const diagnostics = document.createElement("p");
   diagnostics.className = "diagnostic-note";
   diagnostics.dataset.role = "invoice-diagnostics";
-  const supplement = report.tables.diagnostics?.invoiceSupplement || {};
+  const supplement = report.tables.diagnostics?.receivables || {};
   if (report.tables.invoices.available === false) {
-    diagnostics.textContent = "回款关联诊断未获取（不随临时项目选择联动）";
+    diagnostics.textContent = "回款数据及关联诊断未获取";
   } else {
     diagnostics.textContent = "未映射 " + (supplement.unmappedCount || 0) + " 笔，" +
       formatOperationalValue(supplement.unmappedAmount || 0, "money") + "；多重匹配 " +
       (supplement.ambiguousCount || 0) + " 笔，" +
-      formatOperationalValue(supplement.ambiguousAmount || 0, "money") +
-      "（不随临时项目选择联动）";
+      formatOperationalValue(supplement.ambiguousAmount || 0, "money") + "；数据异常 " +
+      (supplement.invalidCount || 0) + " 笔。未映射合同：" +
+      diagnosticIdentifiers(supplement.unmapped, function (item) { return item.contractNo; }) +
+      "；多重匹配合同：" +
+      diagnosticIdentifiers(supplement.ambiguous, function (item) {
+        const candidates = (item.candidates || []).map(function (candidate) {
+          return candidate.projectNo || candidate.projectId;
+        }).filter(Boolean).join("/");
+        return (item.contractNo || "无合同号") + (candidates ? "→" + candidates : "");
+      }) +
+      "；异常明细：" +
+      diagnosticIdentifiers(supplement.invalid, function (item) {
+        return (item.detailId || "无ID") + "[" + (item.fields || []).join("/") + "]";
+      });
   }
   container.appendChild(diagnostics);
+}
+
+function appendInvoicePlanDetails(document, container, rows, columns) {
+  (rows || []).filter(function (row) {
+    return (row.details || []).length > 1;
+  }).forEach(function (row) {
+    const details = document.createElement("details");
+    details.className = "invoice-plan-details";
+    details.dataset.role = "invoice-plan-details";
+    const summary = document.createElement("summary");
+    summary.textContent = (row.contractNo || "未获取合同") + " 净额组成（" + row.details.length + " 条）";
+    details.appendChild(summary);
+    appendOperationalTable(document, details, columns, row.details, "无组成明细");
+    container.appendChild(details);
+  });
 }
 
 export function renderAnalyticsOperationalSections(document, container, report) {
@@ -368,6 +431,7 @@ export function renderAnalyticsOperationalSections(document, container, report) 
     report.tables.invoices.overdue,
     report.tables.invoices.available === false ? "回款数据未获取完整" : "无逾期未回记录"
   );
+  appendInvoicePlanDetails(document, invoice, report.tables.invoices.overdue, invoiceTableColumns);
   appendInvoiceDiagnostics(document, invoice, report);
   container.appendChild(invoice);
 }
@@ -470,10 +534,11 @@ export function renderAnalyticsManagementSections(document, container, report, o
     { key: "projectDeptName", label: "部门名称" },
     { key: "projectCount", label: "项目数", format: "number" }
   ], meta.historicalDepartments, "无历史部门");
-  const supplement = meta.invoiceSupplement || {};
+  const supplement = meta.receivables || {};
   const invoiceDiagnostic = document.createElement("p");
   invoiceDiagnostic.textContent = "未映射回款" + (supplement.unmappedCount || 0) + " 笔，" +
-    formatOperationalValue(supplement.unmappedAmount || 0, "money");
+    formatOperationalValue(supplement.unmappedAmount || 0, "money") + "；多重匹配" +
+    (supplement.ambiguousCount || 0) + " 笔；数据异常" + (supplement.invalidCount || 0) + " 笔";
   diagnostics.appendChild(invoiceDiagnostic);
   const replaced = document.createElement("p");
   replaced.textContent = "替代周报" + ((meta.replacedWeeklyReportIds || []).join("、") || "无");

@@ -175,3 +175,76 @@ test("analytics data identifies redirected HTML sessions", async function () {
   });
   await assert.rejects(data.fetchDepartments(), /SESSION_EXPIRED/);
 });
+
+test("analytics data fetches cross-year receivables once per scope without legacy parameters", async function () {
+  const urls = [];
+  const rawRows = [{
+    detailId: "D1",
+    planId: "PLAN-1",
+    contractNum: "HT-1",
+    planRecDate: "2025-03-31",
+    invoiceAmount: -100,
+    recFlag: "0",
+    redReversal: "是"
+  }, {
+    detailId: "D2",
+    planId: "PLAN-2",
+    contractNum: "HT-2",
+    planRecDate: "2026-07-31",
+    realRecDate: "2026-07-20",
+    invoiceAmount: 200,
+    recFlag: "1",
+    recAmount: 200
+  }, {
+    detailId: "D3",
+    planId: "PLAN-3",
+    contractNum: "NONE",
+    planRecDate: "2027-01-31",
+    invoiceAmount: 300,
+    recFlag: "0"
+  }];
+  const data = createJxpmoAnalyticsData({
+    location: { origin: "https://jxmis.example.com" },
+    storage: { getItem: function () { return "/jxpmo"; } },
+    pageSize: 2,
+    fetch: async function (url) {
+      urls.push(url);
+      const start = Number(new URL(url).searchParams.get("start"));
+      return {
+        ok: true,
+        json: async function () {
+          return { recordsTotal: rawRows.length, rows: rawRows.slice(start, start + 2) };
+        }
+      };
+    }
+  });
+  const projects = [{
+    projectId: "P1",
+    projectNo: "JX-1",
+    projectName: "项目一",
+    projectManagerName: "经理甲",
+    contractNo: "HT-1,HT-2"
+  }];
+
+  const scoped = await data.fetchReceivables("D1", projects);
+  assert.equal(scoped.status, "success");
+  assert.equal(scoped.rows.length, 3);
+  assert.deepEqual(scoped.rows.slice(0, 2).map(function (row) { return row.projectId; }), ["P1", "P1"]);
+  assert.equal(scoped.rows[0].pendingAmount, -100);
+  assert.equal(scoped.diagnostics.unmappedCount, 1);
+  const scopedUrls = urls.splice(0);
+  assert.equal(scopedUrls.length, 2);
+  scopedUrls.forEach(function (url) {
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/jxpmo/rest/contract/queryInvoicePlanDetailService/query");
+    assert.equal(parsed.searchParams.get("saleDept"), "D1");
+    assert.equal(parsed.searchParams.get("planRecYear"), null);
+    assert.equal(parsed.searchParams.get("meetDateYear"), "undefined");
+    assert.equal(parsed.searchParams.get("likeAll_"), "1");
+  });
+
+  await data.fetchReceivables("all", projects);
+  urls.forEach(function (url) {
+    assert.equal(new URL(url).searchParams.get("saleDept"), null);
+  });
+});

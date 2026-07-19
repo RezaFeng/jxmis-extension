@@ -50,9 +50,30 @@ function fixture(overrides = {}) {
       P1: [{ planEndTime: "2026-07-05", confirmStatus: "1", nodeName: "上线" }],
       P2: [{ planEndTime: "2026-07-11", confirmStatus: "2", nodeName: "验收" }]
     },
+    invoiceRows: [{
+      detailId: "I1",
+      planId: "PLAN-1",
+      projectId: "P1",
+      planDate: "2026-07-01",
+      planAmount: 100,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: 100,
+      valid: true
+    }, {
+      detailId: "I2",
+      planId: "PLAN-2",
+      projectId: "P2",
+      planDate: "2026-07-10",
+      planAmount: 200,
+      receivedFlag: "1",
+      receivedAmount: 100,
+      pendingAmount: 0,
+      valid: true
+    }],
     invoicesByProject: {
-      P1: [{ planDate: "2026-07-01", planAmount: 100, receivedAmount: 0, pendingAmount: 100 }],
-      P2: [{ planDate: "2026-07-10", planAmount: 200, receivedAmount: 100, pendingAmount: 100 }]
+      P1: [{ planId: "PLAN-1", planDate: "2026-07-01", planAmount: 100, receivedFlag: "0", receivedAmount: 0, pendingAmount: 100, valid: true }],
+      P2: [{ planId: "PLAN-2", planDate: "2026-07-10", planAmount: 200, receivedFlag: "1", receivedAmount: 100, pendingAmount: 0, valid: true }]
     },
     nextPlannedHoursByProject: { P1: 8, P2: 16 }
   }, overrides);
@@ -94,7 +115,11 @@ test("analytics engine outputs 34 cards and 35 values", function () {
   assert.equal(report.metrics.risks.attentionProjectCount, 2);
   assert.equal(report.metrics.milestone.overdueCount, 1);
   assert.equal(report.metrics.invoice.monthPlan, 300);
-  assert.equal(report.metrics.invoice.pending, 200);
+  assert.equal(report.metrics.invoice.received, 100);
+  assert.equal(report.metrics.invoice.pending, 100);
+  assert.equal(report.metrics.invoice.plannedCount, 2);
+  assert.equal(report.metrics.invoice.receivedCount, 1);
+  assert.equal(report.metrics.invoice.receivedRate, 1 / 3);
   assert.equal(report.tables.projectManagers.length, 2);
   assert.equal(report.tables.budgetHealth[0].periodCost, 100);
 });
@@ -142,15 +167,14 @@ test("analytics engine keeps failed business sources unavailable instead of zero
     dailyByProject: {},
     previousDailyByProject: {},
     milestonesByProject: { P2: [] },
+    invoiceRows: [],
     invoicesByProject: { P2: [] },
     sourceStatus: [
       { source: "daily", status: "failed" },
       { source: "previousDaily", status: "failed" },
       { source: "milestones", projectId: "P1", status: "failed" },
       { source: "milestones", projectId: "P2", status: "empty" },
-      { source: "invoices", projectId: "P1", status: "failed" },
-      { source: "invoices", projectId: "P2", status: "empty" },
-      { source: "monthlyInvoices", status: "failed" }
+      { source: "invoices", status: "failed" }
     ]
   }));
 
@@ -173,15 +197,14 @@ test("analytics engine treats successful empty sources as known zero", function 
     dailyByProject: {},
     previousDailyByProject: {},
     milestonesByProject: { P1: [], P2: [] },
+    invoiceRows: [],
     invoicesByProject: { P1: [], P2: [] },
     sourceStatus: [
       { source: "daily", status: "empty" },
       { source: "previousDaily", status: "empty" },
       { source: "milestones", projectId: "P1", status: "empty" },
       { source: "milestones", projectId: "P2", status: "empty" },
-      { source: "invoices", projectId: "P1", status: "empty" },
-      { source: "invoices", projectId: "P2", status: "empty" },
-      { source: "monthlyInvoices", status: "empty" }
+      { source: "invoices", status: "empty" }
     ]
   }));
 
@@ -223,7 +246,7 @@ test("analytics engine builds adjacent period comparison from the same live proj
   assert.equal(report.metrics.comparison.overview, undefined);
   assert.equal(report.metrics.comparison.milestone.overdueCount.current, 1);
   assert.equal(report.metrics.comparison.milestone.overdueCount.previous, 0);
-  assert.equal(report.metrics.comparison.invoice.overdueCount.current, 2);
+  assert.equal(report.metrics.comparison.invoice.overdueCount.current, 1);
   assert.equal(report.metrics.comparison.invoice.overdueCount.previous, 1);
   assert.equal(report.history, undefined);
 });
@@ -243,4 +266,136 @@ test("period comparison keeps a failed previous source unavailable without hidin
     changeRate: null
   });
   assert.equal(report.metrics.active.periodPV, 300);
+});
+
+test("analytics engine nets signed red reversals by plan and excludes invalid rows", function () {
+  const report = createAnalyticsEngine().buildReport(fixture({
+    endDate: "2026-07-15",
+    invoiceRows: [{
+      detailId: "R1",
+      planId: "RED-1",
+      planDate: "2025-01-31",
+      planAmount: 1167360,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: 1167360,
+      valid: true
+    }, {
+      detailId: "R2",
+      planId: "RED-1",
+      planDate: "2025-02-28",
+      planAmount: 218880,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: 218880,
+      valid: true
+    }, {
+      detailId: "R3",
+      planId: "RED-1",
+      planDate: "2025-03-31",
+      planAmount: 72960,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: 72960,
+      valid: true
+    }, {
+      detailId: "R4",
+      planId: "RED-1",
+      planDate: "2025-03-31",
+      planAmount: -1459200,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: -1459200,
+      redReversal: "是",
+      valid: true
+    }, {
+      detailId: "CURRENT",
+      planId: "PLAN-CURRENT",
+      contractNo: "HT-1",
+      planDate: "2026-07-31",
+      planAmount: 1833710.36,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: 1833710.36,
+      valid: true
+    }, {
+      detailId: "BAD",
+      planId: "PLAN-BAD",
+      planDate: "2026-07-20",
+      planAmount: null,
+      receivedFlag: "2",
+      receivedAmount: null,
+      pendingAmount: null,
+      valid: false
+    }]
+  }));
+
+  assert.equal(report.metrics.invoice.monthPlan, 1833710.36);
+  assert.equal(report.metrics.invoice.received, 0);
+  assert.equal(report.metrics.invoice.pending, 1833710.36);
+  assert.equal(report.metrics.invoice.plannedCount, 1);
+  assert.equal(report.metrics.invoice.receivedCount, 0);
+  assert.equal(report.metrics.invoice.receivedRate, 0);
+  assert.equal(report.metrics.invoice.overdueCount, 0);
+  assert.equal(report.tables.invoices.monthRows.length, 2);
+  assert.equal(report.cards.invoice[0].note.count, 1);
+  assert.deepEqual(report.cards.invoice[1].note, { count: 0, rate: 0 });
+});
+
+test("analytics engine keeps unmatched formal receivables but filters temporary selections", function () {
+  const invoiceRows = [{
+    detailId: "MATCHED",
+    planId: "PLAN-1",
+    projectId: "P1",
+    planDate: "2026-07-01",
+    planAmount: 100,
+    receivedFlag: "0",
+    receivedAmount: 0,
+    pendingAmount: 100,
+    valid: true
+  }, {
+    detailId: "UNMAPPED",
+    planId: "PLAN-2",
+    projectId: null,
+    planDate: "2026-07-02",
+    planAmount: 200,
+    receivedFlag: "0",
+    receivedAmount: 0,
+    pendingAmount: 200,
+    valid: true
+  }];
+
+  assert.equal(createAnalyticsEngine().buildReport(fixture({ invoiceRows })).metrics.invoice.monthPlan, 300);
+  assert.equal(createAnalyticsEngine().buildReport(fixture({
+    invoiceRows,
+    selectedProjectIds: ["P1"]
+  })).metrics.invoice.monthPlan, 100);
+});
+
+test("analytics engine marks the receipt rate unavailable for a non-positive monthly plan", function () {
+  const report = createAnalyticsEngine().buildReport(fixture({
+    invoiceRows: [{
+      detailId: "R1",
+      planId: "RED-1",
+      planDate: "2026-07-01",
+      planAmount: 100,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: 100,
+      valid: true
+    }, {
+      detailId: "R2",
+      planId: "RED-1",
+      planDate: "2026-07-02",
+      planAmount: -100,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: -100,
+      valid: true
+    }]
+  }));
+
+  assert.equal(report.metrics.invoice.monthPlan, 0);
+  assert.equal(report.metrics.invoice.plannedCount, 0);
+  assert.equal(report.metrics.invoice.receivedRate, null);
 });

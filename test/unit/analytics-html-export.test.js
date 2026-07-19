@@ -51,7 +51,27 @@ function report() {
       }],
       activeProjects: [],
       milestones: { planned: [], overdue: [], upcoming: [] },
-      invoices: { monthRows: [], overdue: [] },
+      invoices: {
+        monthRows: [{
+          detailId: "D1",
+          planId: "PLAN-1",
+          contractNo: "HT-1",
+          contractName: "订单合同一",
+          projectName: "项目一",
+          projectManagerName: "经理甲",
+          customerName: "客户甲",
+          paymentNature: "进度款",
+          planAmount: 100000,
+          receivedFlag: "1",
+          receivedAmount: 100000,
+          pendingAmount: 0,
+          planDate: "2026-07-10",
+          realReceivedDate: "2026-07-09",
+          redReversal: "否",
+          valid: true
+        }],
+        overdue: []
+      },
       projectManagers: [],
       budgetHealth: [],
       weeklyExecution: [{ projectNo: "JX-1", summary: "周总结", details: [{ majorPerson: "敏感人员" }] }],
@@ -66,7 +86,14 @@ function report() {
           projectName: "项目一",
           currentInputMd: 1,
           previousInputMd: 0
-        }]
+        }],
+        receivables: {
+          unmappedCount: 1,
+          unmappedAmount: 200000,
+          ambiguousCount: 1,
+          ambiguousAmount: 300000,
+          invalidCount: 1
+        }
       }
     }
   };
@@ -87,6 +114,11 @@ test("analytics html export is self-contained and strips sensitive detail", func
   assert.match(html, /本期经营与上期比较/);
   assert.match(html, /投入范围变化/);
   assert.match(html, /本期进入/);
+  assert.match(html, /HT-1/);
+  assert.match(html, /项目一 \/ 订单合同一/);
+  assert.match(html, /2026-07-09/);
+  assert.match(html, /多重匹配回款：1 笔/);
+  assert.match(html, /异常回款：1 笔/);
   assert.ok(html.indexOf("经营速览") < html.indexOf("实时累计经营概览"));
   assert.ok(html.indexOf("实时累计经营概览") < html.indexOf("本期经营与上期比较"));
   assert.ok(html.indexOf("本期经营与上期比较") < html.indexOf("项目明细"));
@@ -100,6 +132,50 @@ test("analytics html export rejects a temporary project selection", function () 
   const selected = report();
   selected.scope.mode = "selection";
   assert.throws(function () { createOfflineReport(selected); }, /formal analytics report required/);
+});
+
+test("analytics html export includes signed overdue plan composition", function () {
+  const value = report();
+  value.tables.invoices.overdue = [{
+    planId: "RED-1",
+    contractNo: "HT-RED",
+    projectName: "红冲项目",
+    planDate: "2026-06-01",
+    planAmount: 60000,
+    receivedFlag: "0",
+    receivedAmount: 0,
+    pendingAmount: 60000,
+    valid: true,
+    details: [{
+      detailId: "R1",
+      planId: "RED-1",
+      contractNo: "HT-RED",
+      projectName: "红冲项目",
+      planDate: "2026-06-01",
+      planAmount: 100000,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: 100000,
+      valid: true
+    }, {
+      detailId: "R2",
+      planId: "RED-1",
+      contractNo: "HT-RED",
+      projectName: "红冲项目",
+      planDate: "2026-06-02",
+      planAmount: -40000,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: -40000,
+      redReversal: "是",
+      valid: true
+    }]
+  }];
+
+  const html = createOfflineReport(value);
+
+  assert.match(html, /回款净额组成/);
+  assert.match(html, /-4 万元/);
 });
 
 test("analytics html export creates a stable report filename", function () {

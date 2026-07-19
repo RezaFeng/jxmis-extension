@@ -1,4 +1,4 @@
-import { getEndMonthRange, getPreviousDateRange } from "../../analytics/date-range.js";
+import { getPreviousDateRange } from "../../analytics/date-range.js";
 import { isValidRequestId } from "../../shared/protocol.js";
 import {
   applyCurrentPeriodInputScope,
@@ -7,7 +7,7 @@ import {
 } from "./scope.js";
 import { splitWeeklyReportsByRange } from "./weekly-reports.js";
 
-const PROJECT_SOURCES = Object.freeze(["wbs", "milestones", "weeklyReports", "invoices"]);
+const PROJECT_SOURCES = Object.freeze(["wbs", "milestones", "weeklyReports"]);
 
 function errorMessage(error) {
   return (error && error.message ? error.message : String(error)).split(" url=")[0];
@@ -58,10 +58,6 @@ function sourceAvailable(value) {
   return value && ["success", "empty", "notApplicable"].includes(value.status);
 }
 
-function sameRange(left, right) {
-  return left.startDate === right.startDate && left.endDate === right.endDate;
-}
-
 export function createAnalyticsCollector(adapters) {
   const data = adapters.data;
   const AbortControllerCtor = adapters.AbortController || globalThis.AbortController;
@@ -70,6 +66,7 @@ export function createAnalyticsCollector(adapters) {
   };
   const concurrency = Math.min(4, Math.max(1, adapters.concurrency || 4));
   let active = null;
+  let projectCatalog = [];
 
   async function retry(operation, signal) {
     let attempt = 0;
@@ -134,6 +131,7 @@ export function createAnalyticsCollector(adapters) {
       const departments = await retry(function () { return data.fetchDepartments(signal); }, signal);
       progress("projects");
       const projects = await retry(function () { return data.fetchProjects(signal); }, signal);
+      projectCatalog = projects;
       const scope = buildProjectScope({
         departments,
         projects,
@@ -154,6 +152,7 @@ export function createAnalyticsCollector(adapters) {
         previousDailyByProject: {},
         wbsByProject: {},
         milestonesByProject: {},
+        invoiceRows: [],
         invoicesByProject: {},
         weeklyByProject: {},
         previousWeeklyByProject: {},
@@ -170,46 +169,16 @@ export function createAnalyticsCollector(adapters) {
           diagnostics: scope.diagnostics
         });
       }
-      if (candidateProjects.length === 0) {
-        setFormalScope(
-          base,
-          { status: "empty", rows: [] },
-          { status: "empty", rows: [] }
-        );
-        return Object.assign(base, {
-          complete: true,
-          coverage: 1,
-          diagnostics: Object.assign({}, scope.diagnostics, base.formalScope)
-        });
-      }
-
       const previous = getPreviousDateRange(request);
-      const currentMonth = getEndMonthRange(request);
-      const previousMonth = getEndMonthRange(previous);
       const weeklyRange = { startDate: previous.startDate, endDate: request.endDate };
       progress("sharedSources", { totalProjects: candidateProjects.length });
       const sharedDefinitions = [
         ["daily", function () { return data.fetchDailyRows(request.startDate, request.endDate, signal); }],
         ["previousDaily", function () { return data.fetchDailyRows(previous.startDate, previous.endDate, signal); }],
-        ["monthlyInvoices", function () {
-          return data.fetchMonthlyInvoiceSupplement(
-            currentMonth.startDate,
-            currentMonth.endDate,
-            candidateProjects,
-            signal
-          );
+        ["invoices", function () {
+          return data.fetchReceivables(request.departmentId, projects, signal);
         }]
       ];
-      if (!sameRange(currentMonth, previousMonth)) {
-        sharedDefinitions.push(["previousMonthlyInvoices", function () {
-          return data.fetchMonthlyInvoiceSupplement(
-            previousMonth.startDate,
-            previousMonth.endDate,
-            candidateProjects,
-            signal
-          );
-        }]);
-      }
       const shared = {};
       await Promise.all(sharedDefinitions.map(async function ([source, operation]) {
         try {
@@ -225,11 +194,12 @@ export function createAnalyticsCollector(adapters) {
           base.failedRequests.push({ source, error: errorMessage(error) });
         }
       }));
-      if (sameRange(currentMonth, previousMonth)) {
-        shared.previousMonthlyInvoices = shared.monthlyInvoices;
-      }
       base.dailyByProject = groupByProject(shared.daily.rows);
       base.previousDailyByProject = groupByProject(shared.previousDaily.rows);
+      base.invoiceRows = shared.invoices.rows;
+      base.invoicesByProject = groupByProject(shared.invoices.rows.filter(function (row) {
+        return row.projectId !== null && row.projectId !== undefined;
+      }));
       setFormalScope(base, shared.daily, shared.previousDaily);
       const selectedProjects = base.projects;
 
@@ -240,8 +210,7 @@ export function createAnalyticsCollector(adapters) {
           complete,
           coverage: coverage(base),
           diagnostics: Object.assign({}, scope.diagnostics, base.formalScope, {
-            invoiceSupplement: shared.monthlyInvoices.diagnostics || {},
-            previousInvoiceSupplement: shared.previousMonthlyInvoices.diagnostics || {},
+            receivables: shared.invoices.diagnostics || {},
             replacedWeeklyReportIds: []
           })
         });
@@ -257,8 +226,7 @@ export function createAnalyticsCollector(adapters) {
           const operations = {
             wbs: function () { return data.fetchWbs(projectId, signal); },
             milestones: function () { return data.fetchMilestones(projectId, signal); },
-            weeklyReports: function () { return data.fetchWeeklyReports(project, weeklyRange, signal); },
-            invoices: function () { return data.fetchProjectInvoices(projectId, signal); }
+            weeklyReports: function () { return data.fetchWeeklyReports(project, weeklyRange, signal); }
           };
           for (const source of PROJECT_SOURCES) {
             try {
@@ -273,7 +241,6 @@ export function createAnalyticsCollector(adapters) {
                 base.nextPlannedHoursByProject[projectId] = plannedHours(periods.current);
                 base.weeklyReplacedIdsByProject[projectId] = value.replacedIds || [];
               }
-              if (source === "invoices") base.invoicesByProject[projectId] = value.rows;
             } catch (error) {
               if (isSessionExpired(error)) {
                 controller.abort();
@@ -294,27 +261,13 @@ export function createAnalyticsCollector(adapters) {
       await Promise.all(Array.from({ length: Math.min(concurrency, selectedProjects.length) }, worker));
       if (signal.aborted) throw abortError();
 
-      const formalProjectIds = new Set(selectedProjects.map(function (project) {
-        return String(project.projectId);
-      }));
-      const invoiceSources = sameRange(currentMonth, previousMonth)
-        ? [shared.monthlyInvoices]
-        : [shared.monthlyInvoices, shared.previousMonthlyInvoices];
-      invoiceSources.forEach(function (source) {
-        (source.rows || []).forEach(function (row) {
-          if (formalProjectIds.has(String(row.projectId))) {
-            (base.invoicesByProject[row.projectId] ||= []).push(row);
-          }
-        });
-      });
       const complete = base.failedRequests.length === 0;
       progress("complete", { complete });
       return Object.assign(base, {
         complete,
         coverage: coverage(base),
         diagnostics: Object.assign({}, scope.diagnostics, base.formalScope, {
-          invoiceSupplement: shared.monthlyInvoices.diagnostics || {},
-          previousInvoiceSupplement: shared.previousMonthlyInvoices.diagnostics || {},
+          receivables: shared.invoices.diagnostics || {},
           replacedWeeklyReportIds: Object.values(base.weeklyReplacedIdsByProject).flat()
         })
       });
@@ -337,8 +290,6 @@ export function createAnalyticsCollector(adapters) {
       ? previous.failedRequests
       : [];
     const previousRange = getPreviousDateRange(request);
-    const currentMonth = getEndMonthRange(request);
-    const previousMonth = getEndMonthRange(previousRange);
     const weeklyRange = { startDate: previousRange.startDate, endDate: request.endDate };
     const remaining = [];
     function replaceStatus(descriptor, status) {
@@ -366,21 +317,11 @@ export function createAnalyticsCollector(adapters) {
           operation = function () {
             return data.fetchDailyRows(previousRange.startDate, previousRange.endDate, signal);
           };
-        } else if (descriptor.source === "monthlyInvoices") {
+        } else if (descriptor.source === "invoices" && !projectId) {
           operation = function () {
-            return data.fetchMonthlyInvoiceSupplement(
-              currentMonth.startDate,
-              currentMonth.endDate,
-              result.candidateProjects || result.projects,
-              signal
-            );
-          };
-        } else if (descriptor.source === "previousMonthlyInvoices") {
-          operation = function () {
-            return data.fetchMonthlyInvoiceSupplement(
-              previousMonth.startDate,
-              previousMonth.endDate,
-              result.candidateProjects || result.projects,
+            return data.fetchReceivables(
+              request.departmentId,
+              projectCatalog.length > 0 ? projectCatalog : result.candidateProjects || result.projects,
               signal
             );
           };
@@ -390,8 +331,6 @@ export function createAnalyticsCollector(adapters) {
           operation = function () { return data.fetchMilestones(projectId, signal); };
         } else if (descriptor.source === "weeklyReports" && project) {
           operation = function () { return data.fetchWeeklyReports(project, weeklyRange, signal); };
-        } else if (descriptor.source === "invoices" && projectId) {
-          operation = function () { return data.fetchProjectInvoices(projectId, signal); };
         }
         if (!operation) {
           remaining.push(descriptor);
@@ -401,19 +340,12 @@ export function createAnalyticsCollector(adapters) {
           const value = await retry(operation, signal);
           if (descriptor.source === "daily") result.dailyByProject = groupByProject(value.rows);
           if (descriptor.source === "previousDaily") result.previousDailyByProject = groupByProject(value.rows);
-          if (["monthlyInvoices", "previousMonthlyInvoices"].includes(descriptor.source)) {
-            const formalProjectIds = new Set(result.projects.map(function (item) {
-              return String(item.projectId);
+          if (descriptor.source === "invoices") {
+            result.invoiceRows = value.rows;
+            result.invoicesByProject = groupByProject(value.rows.filter(function (row) {
+              return row.projectId !== null && row.projectId !== undefined;
             }));
-            value.rows.forEach(function (row) {
-              if (formalProjectIds.has(String(row.projectId))) {
-                (result.invoicesByProject[row.projectId] ||= []).push(row);
-              }
-            });
-            const diagnosticsField = descriptor.source === "monthlyInvoices"
-              ? "invoiceSupplement"
-              : "previousInvoiceSupplement";
-            result.diagnostics[diagnosticsField] = value.diagnostics || {};
+            result.diagnostics.receivables = value.diagnostics || {};
           }
           if (descriptor.source === "wbs") result.wbsByProject[projectId] = value.rows;
           if (descriptor.source === "milestones") result.milestonesByProject[projectId] = value.rows;
@@ -424,7 +356,6 @@ export function createAnalyticsCollector(adapters) {
             result.nextPlannedHoursByProject[projectId] = plannedHours(periods.current);
             result.weeklyReplacedIdsByProject[projectId] = value.replacedIds || [];
           }
-          if (descriptor.source === "invoices") result.invoicesByProject[projectId] = value.rows;
           replaceStatus(descriptor, value.status);
           if (["daily", "previousDaily"].includes(descriptor.source)) {
             const dailyStatus = result.sourceStatus.find(function (item) {

@@ -163,16 +163,61 @@ function handleApi(url, request, response) {
     });
     return true;
   }
-  if (url.pathname === "/jxpmo/rest/project/queryProjectPlanService/query") {
-    const projectId = url.searchParams.get("projectId");
-    sendJson(response, {
-      rows: [{ invoiceId: "I-" + projectId, projectId, contractNo: projectId === "P1" ? "HT-1" : "HT-2", planDate: "2026-07-10", planAmount: 100000, receivedFlag: "1", receivedAmount: 50000 }],
-      recordsTotal: 1
+  if (url.pathname === "/jxpmo/rest/contract/queryInvoicePlanDetailService/query") {
+    const saleDept = url.searchParams.get("saleDept");
+    const rows = [{
+      detailId: "I-P1",
+      planId: "PLAN-P1",
+      contractNum: "HT-1",
+      contractName: "Fixture Contract One",
+      projectManager: "Fixture PM 1",
+      customName: "Fixture Customer One",
+      recProperty: "进度款",
+      salesDeptName: "交付一部",
+      planRecDate: "2026-07-10",
+      realRecDate: null,
+      invoiceAmount: 100000,
+      recFlag: "0",
+      recAmount: null,
+      redReversal: null,
+      invoiceBatch: "1"
+    }, {
+      detailId: "I-P2",
+      planId: "PLAN-P2",
+      contractNum: "HT-2",
+      contractName: "Fixture Contract Two",
+      projectManager: "Fixture PM 2",
+      customName: "Fixture Customer Two",
+      recProperty: "验收款",
+      salesDeptName: "交付二部",
+      planRecDate: "2026-07-10",
+      realRecDate: "2026-07-09",
+      invoiceAmount: 200000,
+      recFlag: "1",
+      recAmount: 200000,
+      redReversal: "否",
+      invoiceBatch: "1"
+    }, {
+      detailId: "I-P3",
+      planId: "PLAN-P3",
+      contractNum: "HT-3",
+      contractName: "Fixture Contract Three",
+      projectManager: "Fixture PM 3",
+      customName: "Fixture Customer Three",
+      recProperty: "质保款",
+      salesDeptName: "交付一部",
+      planRecDate: "2025-03-31",
+      realRecDate: "2025-03-20",
+      invoiceAmount: 300000,
+      recFlag: "1",
+      recAmount: 300000,
+      redReversal: null,
+      invoiceBatch: "1"
+    }].filter(function (row) {
+      if (!saleDept) return true;
+      return row.salesDeptName === (saleDept === "D1" ? "交付一部" : "交付二部");
     });
-    return true;
-  }
-  if (url.pathname === "/jxpmo/rest/contract/queryReceivedPlanService/query") {
-    sendJson(response, { rows: [], recordsTotal: 0 });
+    sendJson(response, { rows, recordsTotal: rows.length });
     return true;
   }
   if (url.pathname === "/jxpmo/rest/project/queryDailyApprovalService/query") {

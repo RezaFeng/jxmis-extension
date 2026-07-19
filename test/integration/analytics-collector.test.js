@@ -10,7 +10,7 @@ function createData(options = {}) {
   let active = 0;
   let maxActive = 0;
   const projectCalls = [];
-  const monthlyInvoiceCalls = [];
+  const receivableCalls = [];
   const weeklyRanges = [];
   async function perProject(source, id) {
     projectCalls.push(source + ":" + id);
@@ -30,7 +30,7 @@ function createData(options = {}) {
   return {
     maxActive: function () { return maxActive; },
     projectCalls: function () { return projectCalls; },
-    monthlyInvoiceCalls: function () { return monthlyInvoiceCalls; },
+    receivableCalls: function () { return receivableCalls; },
     weeklyRanges: function () { return weeklyRanges; },
     fetchDepartments: async function () { return [{ id: "D1", text: "交付一部", attributes: { privLevel: "2" } }]; },
     fetchProjects: async function () { return Array.from({ length: options.count || 5 }, function (_, index) { return project("P" + index); }); },
@@ -39,17 +39,25 @@ function createData(options = {}) {
       const rows = options.dailyRows ? options.dailyRows(startDate, endDate) : [];
       return { status: rows.length > 0 ? "success" : "empty", rows };
     },
-    fetchMonthlyInvoiceSupplement: async function (startDate, endDate) {
-      monthlyInvoiceCalls.push({ startDate, endDate });
-      return { status: "empty", rows: [], diagnostics: {} };
+    fetchReceivables: async function (departmentId, projects) {
+      receivableCalls.push({
+        departmentId,
+        projectIds: projects.map(function (item) { return item.projectId; })
+      });
+      if (options.failReceivables) throw new Error("HTTP 500 receivables failed");
+      const rows = options.receivableRows || [];
+      return {
+        status: rows.length > 0 ? "success" : "empty",
+        rows,
+        diagnostics: options.receivableDiagnostics || {}
+      };
     },
     fetchWbs: function (id) { return perProject("wbs", id); },
     fetchMilestones: function (id) { return perProject("milestones", id); },
     fetchWeeklyReports: function (value, range) {
       weeklyRanges.push(range);
       return perProject("weekly", value.projectId);
-    },
-    fetchProjectInvoices: function (id) { return perProject("invoices", id); }
+    }
   };
 }
 
@@ -129,7 +137,7 @@ test("analytics collector retries only failed descriptors", async function () {
 test("analytics collector scope-only mode does not fetch business details", async function () {
   const data = createData({ count: 2 });
   let detailCalls = 0;
-  ["fetchDailyRows", "fetchMonthlyInvoiceSupplement", "fetchWbs", "fetchMilestones", "fetchWeeklyReports", "fetchProjectInvoices"]
+  ["fetchDailyRows", "fetchReceivables", "fetchWbs", "fetchMilestones", "fetchWeeklyReports"]
     .forEach(function (name) {
       data[name] = async function () { detailCalls += 1; return { status: "empty", rows: [] }; };
     });
@@ -163,24 +171,62 @@ test("analytics collector narrows the formal scope from current input and diagno
   assert.deepEqual(result.formalScope.enteredProjectIds, ["P0"]);
   assert.deepEqual(result.formalScope.exitedProjectIds, ["P1"]);
   assert.ok(data.projectCalls().every(function (value) { return value.endsWith(":P0"); }));
-  assert.equal(data.monthlyInvoiceCalls().length, 1);
+  assert.equal(data.receivableCalls().length, 1);
+  assert.deepEqual(data.receivableCalls()[0].projectIds, ["P0", "P1", "P2"]);
   assert.deepEqual(data.weeklyRanges()[0], {
     startDate: "2026-06-29",
     endDate: "2026-07-12"
   });
 });
 
-test("analytics collector requests each distinct ending month once", async function () {
+test("analytics collector requests cross-year receivables once for the selected sales department", async function () {
   const data = createData({ count: 1 });
   const input = Object.assign({}, request(), {
     startDate: "2026-07-01",
     endDate: "2026-07-03"
   });
   await createAnalyticsCollector({ data }).collect(input);
-  assert.deepEqual(data.monthlyInvoiceCalls(), [
-    { startDate: "2026-07-01", endDate: "2026-07-31" },
-    { startDate: "2026-06-01", endDate: "2026-06-30" }
-  ]);
+  assert.deepEqual(data.receivableCalls(), [{ departmentId: "D1", projectIds: ["P0"] }]);
+});
+
+test("analytics collector keeps unmatched receivables in department totals and groups matched rows by project", async function () {
+  const data = createData({
+    count: 1,
+    receivableRows: [{ detailId: "D1", planId: "PLAN-1", projectId: "P0", planAmount: 100 },
+      { detailId: "D2", planId: "PLAN-2", projectId: null, planAmount: 200 }],
+    receivableDiagnostics: { unmappedCount: 1, unmappedAmount: 200 }
+  });
+  const result = await createAnalyticsCollector({ data }).collect(request());
+
+  assert.equal(result.invoiceRows.length, 2);
+  assert.deepEqual(result.invoicesByProject.P0.map(function (row) { return row.detailId; }), ["D1"]);
+  assert.equal(result.diagnostics.receivables.unmappedCount, 1);
+  assert.equal(result.sourceStatus.filter(function (item) { return item.source === "invoices"; }).length, 1);
+  assert.equal(data.projectCalls().some(function (value) { return value.startsWith("invoices:"); }), false);
+});
+
+test("analytics collector retries the shared receivables source without legacy fallback", async function () {
+  const data = createData({ count: 1, failReceivables: true });
+  const collector = createAnalyticsCollector({ data, sleep: async function () {} });
+  const partial = await collector.collect(request());
+  assert.deepEqual(partial.failedRequests, [{ source: "invoices", error: "HTTP 500 receivables failed" }]);
+
+  data.fetchReceivables = async function () {
+    return {
+      status: "success",
+      rows: [{ detailId: "D1", planId: "PLAN-1", projectId: "P0" }],
+      diagnostics: { unmappedCount: 0 }
+    };
+  };
+  const retried = await collector.retryFailed(
+    Object.assign({}, request(), { requestId: "R2" }),
+    partial
+  );
+
+  assert.equal(retried.complete, true);
+  assert.equal(retried.invoiceRows.length, 1);
+  assert.equal(retried.invoicesByProject.P0.length, 1);
+  assert.equal(retried.diagnostics.receivables.unmappedCount, 0);
 });
 
 test("analytics collector keeps technical daily failure distinct from zero input", async function () {

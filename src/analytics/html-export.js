@@ -25,7 +25,14 @@ function cards(values) {
   return `<div class="cards">${(values || []).map(function (card) {
     return `<article><span>${escapeHtml(card.label)}</span>${(card.values || []).map(function (value) {
       return `<strong>${escapeHtml(formatValue(value.value, value.format))}</strong>`;
-    }).join("")}</article>`;
+    }).join("")}${card.note ? `<small>${escapeHtml([
+      card.note.count === null || card.note.count === undefined ? "笔数未获取" : card.note.count + " 笔",
+      Object.prototype.hasOwnProperty.call(card.note, "rate")
+        ? "回款率 " + (card.note.rate === null || card.note.rate === undefined
+          ? "-"
+          : formatValue(card.note.rate, "percent"))
+        : null
+    ].filter(Boolean).join(" · "))}</small>` : ""}</article>`;
   }).join("")}</div>`;
 }
 
@@ -69,11 +76,34 @@ const MILESTONE_COLUMNS = [
 ];
 
 const INVOICE_COLUMNS = [
-  { key: "group", label: "分组" }, { key: "projectNo", label: "编码" },
-  { key: "projectName", label: "项目名称" }, { key: "contractNo", label: "合同编号" },
-  { key: "planDate", label: "计划日" }, { key: "planAmount", label: "计划金额", format: "money" },
+  { key: "group", label: "分组" }, { key: "contractNo", label: "合同编号" },
+  {
+    label: "项目名称",
+    value: function (row) {
+      const projectName = row.projectName || "未找到对应项目";
+      return row.contractName && row.contractName !== projectName
+        ? projectName + " / " + row.contractName
+        : projectName;
+    }
+  },
+  { key: "projectManagerName", label: "项目经理" },
+  { key: "customerName", label: "客户" }, { key: "paymentNature", label: "款项性质" },
+  { key: "planAmount", label: "计划金额", format: "money" },
   { key: "receivedAmount", label: "已回款", format: "money" },
-  { key: "pendingAmount", label: "待回款", format: "money" }
+  { key: "pendingAmount", label: "待回款", format: "money" },
+  { key: "planDate", label: "计划回款日" },
+  {
+    label: "实际回款日",
+    value: function (row) { return row.receivedFlag === "0" ? "-" : row.realReceivedDate; }
+  },
+  {
+    label: "状态",
+    value: function (row) {
+      if (row.valid === false) return "数据异常";
+      return (row.receivedFlag === "1" ? "已回款" : "待回款") +
+        (row.redReversal === "是" ? "（红冲）" : "");
+    }
+  }
 ];
 
 const COMPARISON_GROUPS = [
@@ -92,7 +122,8 @@ const COMPARISON_GROUPS = [
   ]],
   ["回款", "invoice", [
     ["monthPlan", "结束月计划", "money"], ["received", "实收", "money"],
-    ["pending", "待回", "money"], ["overdueCount", "逾期笔数", "number"]
+    ["pending", "待回", "money"], ["receivedRate", "回款率", "percent"],
+    ["overdueCount", "逾期笔数", "number"]
   ]]
 ];
 
@@ -126,7 +157,7 @@ function comparisonTables(report) {
 
 function diagnostics(report) {
   const value = report.tables.diagnostics || {};
-  const supplement = value.invoiceSupplement || {};
+  const supplement = value.receivables || {};
   const statuses = (value.sourceStatus || []).map(function (item) {
     return [item.source, item.projectId || "-", item.status].map(escapeHtml).join(" / ");
   }).join("<br>") || "无";
@@ -144,6 +175,9 @@ function diagnostics(report) {
     `<p>来源状态：${statuses}</p>` +
     `<p>未映射回款：${escapeHtml(supplement.unmappedCount || 0)} 笔，` +
     `${escapeHtml(formatValue(supplement.unmappedAmount || 0, "money"))}</p>` +
+    `<p>多重匹配回款：${escapeHtml(supplement.ambiguousCount || 0)} 笔，` +
+    `${escapeHtml(formatValue(supplement.ambiguousAmount || 0, "money"))}</p>` +
+    `<p>异常回款：${escapeHtml(supplement.invalidCount || 0)} 笔</p>` +
     `<p>替代周报：${escapeHtml((value.replacedWeeklyReportIds || []).join("、") || "无")}</p>` +
     `${changes}</section>`;
 }
@@ -191,6 +225,11 @@ export function createOfflineReport(report) {
     ["当月计划", report.tables.invoices?.monthRows],
     ["逾期未回", report.tables.invoices?.overdue]
   ]);
+  const invoiceDetailRows = (report.tables.invoices?.overdue || []).flatMap(function (row) {
+    return (row.details || []).length > 1
+      ? row.details.map(function (detail) { return Object.assign({ group: "净额组成" }, detail); })
+      : [];
+  });
   const weeklyRows = (report.tables.weeklyExecution || []).map(function (row) {
     return {
       startDate: row.startDate,
@@ -211,7 +250,7 @@ export function createOfflineReport(report) {
     formatValue(report.metrics?.invoice?.overdueCount) + " 笔逾期回款",
     formatValue(report.metrics?.risks?.itemCount) + " 项待跟进"
   ].join(" · ");
-  const style = `*{box-sizing:border-box}body{margin:0;color:#20262d;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f6f8}header,main{width:min(1440px,calc(100% - 32px));margin:auto}header{padding:24px 0 16px;border-bottom:1px solid #ccd3da}h1{margin:0;font-size:24px}h2{font-size:18px}h3{font-size:14px}section,details{padding:18px 0;border-bottom:1px solid #d7dde3}summary{cursor:pointer;font-weight:650}.status{padding:11px 14px;border:1px solid #cbd4dc;border-left:4px solid #1769aa;background:#fff}.executive{border-left:4px solid #c23b3b;padding-left:14px}.cards{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}.cards article{min-height:84px;padding:12px;border:1px solid #d5dbe1;border-radius:6px;background:#fff}.cards span,.cards strong{display:block}.cards span{color:#68737e;font-size:12px}.cards strong{margin-top:12px;font-size:18px}.comparison{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:14px}.comparison details{padding-top:0}.tools{display:flex;gap:8px;margin:16px 0}.tools input{min-width:260px}.tools input,.tools button,th button{min-height:34px;border:1px solid #aeb8c2;border-radius:5px;padding:6px 9px;background:#fff}.table-wrap{overflow:auto;border:1px solid #d5dbe1;background:#fff}table{width:100%;min-width:980px;border-collapse:collapse}th,td{padding:8px 9px;border-bottom:1px solid #e3e7eb;text-align:left;white-space:nowrap}th{background:#eef1f4}th button{min-height:0;border:0;padding:0;background:transparent;font-weight:650}@media(max-width:1100px){.comparison{grid-template-columns:1fr}.cards{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:760px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.tools{flex-wrap:wrap}.tools input{min-width:100%}}`;
+  const style = `*{box-sizing:border-box}body{margin:0;color:#20262d;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f6f8}header,main{width:min(1440px,calc(100% - 32px));margin:auto}header{padding:24px 0 16px;border-bottom:1px solid #ccd3da}h1{margin:0;font-size:24px}h2{font-size:18px}h3{font-size:14px}section,details{padding:18px 0;border-bottom:1px solid #d7dde3}summary{cursor:pointer;font-weight:650}.status{padding:11px 14px;border:1px solid #cbd4dc;border-left:4px solid #1769aa;background:#fff}.executive{border-left:4px solid #c23b3b;padding-left:14px}.cards{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}.cards article{min-height:84px;padding:12px;border:1px solid #d5dbe1;border-radius:6px;background:#fff}.cards span,.cards strong,.cards small{display:block}.cards span{color:#68737e;font-size:12px}.cards strong{margin-top:12px;font-size:18px}.cards small{margin-top:6px;color:#68737e}.comparison{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:14px}.comparison details{padding-top:0}.tools{display:flex;gap:8px;margin:16px 0}.tools input{min-width:260px}.tools input,.tools button,th button{min-height:34px;border:1px solid #aeb8c2;border-radius:5px;padding:6px 9px;background:#fff}.table-wrap{overflow:auto;border:1px solid #d5dbe1;background:#fff}table{width:100%;min-width:980px;border-collapse:collapse}th,td{padding:8px 9px;border-bottom:1px solid #e3e7eb;text-align:left;white-space:nowrap}th{background:#eef1f4}th button{min-height:0;border:0;padding:0;background:transparent;font-weight:650}@media(max-width:1100px){.comparison{grid-template-columns:1fr}.cards{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:760px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.tools{flex-wrap:wrap}.tools input{min-width:100%}}`;
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">` +
     `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">` +
     `<meta name="viewport" content="width=device-width,initial-scale=1">` +
@@ -228,7 +267,8 @@ export function createOfflineReport(report) {
     })}</section>` +
     `<section><h2>里程碑与回款</h2>${cards(report.cards.milestone)}` +
     `${table("里程碑明细", milestoneRows, MILESTONE_COLUMNS)}${cards(report.cards.invoice)}` +
-    `${table("回款明细", invoiceRows, INVOICE_COLUMNS)}</section>` +
+    `${table("回款明细", invoiceRows, INVOICE_COLUMNS)}` +
+    `${invoiceDetailRows.length > 0 ? table("回款净额组成", invoiceDetailRows, INVOICE_COLUMNS) : ""}</section>` +
     `${table("项目经理维度", report.tables.projectManagers, [
       { key: "projectManagerName", label: "PM" }, { key: "projectCount", label: "项目数" },
       { key: "revenue", label: "收入", format: "money" }, { key: "ac", label: "成本", format: "money" },

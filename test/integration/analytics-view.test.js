@@ -101,6 +101,7 @@ function analyticsInput(overrides = {}) {
     previousDailyByProject: { P1: [{ realHour: 4, cost: 500 }] },
     wbsByProject: { P1: [{ costLevel: 10000, planEndTime: "2026-07-08", actualEndTime: "2026-07-09" }] },
     milestonesByProject: { P1: [] },
+    invoiceRows: [],
     invoicesByProject: { P1: [] },
     nextPlannedHoursByProject: { P1: 16 },
     formalScope: {
@@ -110,7 +111,7 @@ function analyticsInput(overrides = {}) {
       status: "success"
     },
     coverage: 1,
-    diagnostics: { invoiceSupplement: {} }
+    diagnostics: { receivables: {} }
   }, overrides);
 }
 
@@ -192,34 +193,55 @@ test("milestone view renders cards, overdue and upcoming project lists", functio
 
 test("invoice view renders cards, overdue rows and unmapped diagnostics", function () {
   const report = createAnalyticsEngine().buildReport(analyticsInput({
-    invoicesByProject: {
-      P1: [
-        {
-          invoiceId: "I1",
-          projectId: "P1",
-          contractNo: "HT-1",
-          planDate: "2026-07-01",
-          planAmount: 300000,
-          receivedAmount: 100000,
-          pendingAmount: 200000
-        },
-        {
-          invoiceId: "I2",
-          projectId: "P1",
-          contractNo: "HT-1",
-          planDate: "2026-07-10",
-          planAmount: 200000,
-          receivedAmount: 200000,
-          pendingAmount: 0
-        }
-      ]
-    },
+    invoiceRows: [{
+      invoiceId: "I1",
+      detailId: "I1",
+      planId: "PLAN-1",
+      projectId: "P1",
+      projectNo: "JX-1",
+      projectName: "项目一",
+      projectManagerName: "经理甲",
+      contractNo: "HT-1",
+      contractName: "合同订单一",
+      customerName: "客户甲",
+      paymentNature: "进度款",
+      planDate: "2026-07-01",
+      realReceivedDate: null,
+      planAmount: 300000,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: 300000,
+      valid: true
+    }, {
+      invoiceId: "I2",
+      detailId: "I2",
+      planId: "PLAN-2",
+      projectId: "P1",
+      projectNo: "JX-1",
+      projectName: "项目一",
+      projectManagerName: "经理甲",
+      contractNo: "HT-1",
+      contractName: "合同订单二",
+      customerName: "客户甲",
+      paymentNature: "验收款",
+      planDate: "2026-07-10",
+      realReceivedDate: "2026-07-09",
+      planAmount: 200000,
+      receivedFlag: "1",
+      receivedAmount: 200000,
+      pendingAmount: 0,
+      valid: true
+    }],
     diagnostics: {
-      invoiceSupplement: {
+      receivables: {
         unmappedCount: 2,
         unmappedAmount: 300000,
         ambiguousCount: 1,
-        ambiguousAmount: 100000
+        ambiguousAmount: 100000,
+        invalidCount: 1,
+        unmapped: [{ contractNo: "NONE" }],
+        ambiguous: [{ contractNo: "DUP" }],
+        invalid: [{ detailId: "BAD", fields: ["recFlag"] }]
       }
     }
   }));
@@ -233,18 +255,22 @@ test("invoice view renders cards, overdue rows and unmapped diagnostics", functi
   assert.match(section.textContent, /回款计划/);
   assert.match(section.textContent, /当月计划明细/);
   assert.match(section.textContent, /逾期未回/);
-  assert.match(section.textContent, /JX-1项目一经理甲HT-12026-07-0130 万元10 万元20 万元逾期 11 天/);
+  assert.match(section.textContent, /HT-1项目一 \/ 合同订单一经理甲客户甲进度款30 万元0 万元30 万元2026-07-01-待回款 · 逾期 11 天/);
+  assert.match(section.textContent, /合同订单二.*2026-07-09已回款/);
+  assert.match(section.textContent, /2 笔/);
+  assert.match(section.textContent, /回款率 40%/);
   assert.match(section.textContent, /未映射 2 笔，30 万元/);
   assert.match(section.textContent, /多重匹配 1 笔，10 万元/);
+  assert.match(section.textContent, /数据异常 1 笔/);
 });
 
 test("invoice view displays failed source values as unavailable", function () {
   const report = createAnalyticsEngine().buildReport(analyticsInput({
     complete: false,
+    invoiceRows: [],
     invoicesByProject: {},
     sourceStatus: [
-      { source: "invoices", projectId: "P1", status: "failed" },
-      { source: "monthlyInvoices", status: "failed" }
+      { source: "invoices", status: "failed" }
     ]
   }));
   const host = new FakeElement("div");
@@ -254,9 +280,52 @@ test("invoice view displays failed source values as unavailable", function () {
   const section = findByRole(host, "invoice-view");
   assert.match(
     section.textContent,
-    /当月计划未获取已回款未获取待回款未获取逾期未回笔数未获取/
+    /当月计划未获取笔数未获取已回款未获取笔数未获取 · 回款率 -待回款未获取逾期未回笔数未获取/
   );
   assert.doesNotMatch(section.textContent, /当月计划0/);
+});
+
+test("invoice view exposes signed details behind an overdue plan net amount", function () {
+  const report = createAnalyticsEngine().buildReport(analyticsInput({
+    invoiceRows: [{
+      detailId: "R1",
+      planId: "RED-1",
+      contractNo: "HT-RED",
+      projectName: "红冲项目",
+      projectManagerName: "经理甲",
+      planDate: "2026-06-01",
+      planAmount: 100000,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: 100000,
+      redReversal: "是",
+      invoiceBatch: "1",
+      valid: true
+    }, {
+      detailId: "R2",
+      planId: "RED-1",
+      contractNo: "HT-RED",
+      projectName: "红冲项目",
+      projectManagerName: "经理甲",
+      planDate: "2026-06-02",
+      planAmount: -40000,
+      receivedFlag: "0",
+      receivedAmount: 0,
+      pendingAmount: -40000,
+      redReversal: "是",
+      invoiceBatch: "2",
+      valid: true
+    }]
+  }));
+  const host = new FakeElement("div");
+
+  renderAnalyticsOperationalSections(fakeDocument, host, report);
+
+  const details = findByRole(host, "invoice-plan-details");
+  assert.ok(details);
+  assert.match(details.textContent, /HT-RED 净额组成（2 条）/);
+  assert.match(details.textContent, /10 万元/);
+  assert.match(details.textContent, /-4 万元/);
 });
 
 test("PM analytics renders manager aggregates and weekly execution", function () {
@@ -318,7 +387,7 @@ test("data diagnostics renders coverage failures and retry action", function () 
         currentInputMd: 1,
         previousInputMd: 0
       }],
-      invoiceSupplement: { unmappedCount: 1, unmappedAmount: 100000, ambiguousCount: 0, ambiguousAmount: 0 },
+      receivables: { unmappedCount: 1, unmappedAmount: 100000, ambiguousCount: 0, ambiguousAmount: 0, invalidCount: 0 },
       replacedWeeklyReportIds: ["WK-OLD"]
     }
   }));
