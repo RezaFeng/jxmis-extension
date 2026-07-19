@@ -108,22 +108,26 @@ function inputHoursByProject(rows) {
 
 export function applyCurrentPeriodInputScope(input) {
   const candidates = (input.projects || []).slice();
+  const executionCandidates = candidates.filter(function (project) {
+    const realExeuCost = Number(project.realExeuCost);
+    return Number.isFinite(realExeuCost) && realExeuCost > 0;
+  });
   const onlyCurrentPeriodInput = input.onlyCurrentPeriodInput !== false;
   const currentAvailable = input.currentAvailable !== false;
   const previousAvailable = input.previousAvailable !== false;
   const currentHours = currentAvailable ? inputHoursByProject(input.currentDailyRows) : null;
   const previousHours = previousAvailable ? inputHoursByProject(input.previousDailyRows) : null;
   const projects = onlyCurrentPeriodInput && currentAvailable
-    ? candidates.filter(function (project) {
+    ? executionCandidates.filter(function (project) {
       return (currentHours.get(String(project.projectId)) || 0) > 0;
     })
-    : candidates;
+    : executionCandidates;
   const rangesKnown = currentAvailable && previousAvailable;
   const enteredProjectIds = rangesKnown ? [] : null;
   const exitedProjectIds = rangesKnown ? [] : null;
   const rangeChangeProjects = rangesKnown ? [] : null;
   if (rangesKnown) {
-    candidates.forEach(function (project) {
+    executionCandidates.forEach(function (project) {
       const projectId = String(project.projectId);
       const current = currentHours.get(projectId) || 0;
       const previous = previousHours.get(projectId) || 0;
@@ -143,6 +147,8 @@ export function applyCurrentPeriodInputScope(input) {
   return {
     projects,
     candidateProjectCount: candidates.length,
+    executionCandidateCount: executionCandidates.length,
+    excludedExecutionCostCount: candidates.length - executionCandidates.length,
     formalProjectCount: onlyCurrentPeriodInput && !currentAvailable ? null : projects.length,
     onlyCurrentPeriodInput,
     status: onlyCurrentPeriodInput ? (currentAvailable ? "success" : "failed") : "notApplicable",

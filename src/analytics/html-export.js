@@ -204,6 +204,7 @@ function reportStatus(report) {
     ? "未获取/" + candidateCount
     : formalCount + "/" + candidateCount;
   return [
+    "报告状态 " + (report.complete === true ? "完整" : "数据不完整"),
     "周期 " + report.identity.startDate + " 至 " + report.identity.endDate,
     "正式范围 " + formal,
     report.scope.onlyCurrentPeriodInput ? "仅本期日报投入项目" : "全部候选项目",
@@ -297,5 +298,8 @@ export function createOfflineReportFileName(report, now = new Date()) {
   const instant = now instanceof Date ? now : new Date(now);
   if (Number.isNaN(instant.getTime())) throw new Error("valid export time required");
   const stamp = instant.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
-  return ["经营分析", department, report.identity.startDate, report.identity.endDate, stamp].join("_") + ".html";
+  const parts = ["经营分析", department, report.identity.startDate, report.identity.endDate];
+  if (report.complete !== true) parts.push("数据不完整");
+  parts.push(stamp);
+  return parts.join("_") + ".html";
 }

@@ -44,7 +44,7 @@ function analyticsProject(index, departmentId) {
     subcontractAmount: index === 1 ? null : 1000000,
     tqSoftAmount: index === 1 ? 300000 : null,
     estiExeuCost: 500000,
-    realExeuCost: index === 1 ? null : 200000,
+    realExeuCost: 200000,
     realWorkload: index === 1 ? null : 261,
     planCompleteSchedule: 50,
     estiTravelCost: 0,
@@ -106,7 +106,14 @@ function handleApi(url, request, response) {
   if (url.pathname === "/jxpmo/rest/project/ProjectInfoService/query") {
     const mode = analyticsMode(request);
     const start = Number(url.searchParams.get("start") || 0);
-    const total = mode === "paginated" ? 201 : 3;
+    const requestedStatus = url.searchParams.get("currStatus");
+    const requestedOutsourcing = url.searchParams.get("outsourcing");
+    if ((requestedStatus && requestedStatus !== "20") ||
+      (requestedOutsourcing && requestedOutsourcing !== "01")) {
+      sendJson(response, { rows: [], recordsTotal: 0 });
+      return true;
+    }
+    const total = mode === "paginated" ? 2001 : 3;
     const allRows = mode === "paginated"
       ? Array.from({ length: total }, function (_, index) {
           return analyticsProject(index + 1, index === 0 ? "D1" : "D2");
@@ -127,7 +134,7 @@ function handleApi(url, request, response) {
       rows: (previous ? [1, 2, 3] : [1, 2]).map(function (index) {
         return {
           projectId: "P" + index,
-          taskDate: previous ? "2026-07-03" : "2026-07-08",
+          realEndTime: previous ? "2026-07-03" : "2026-07-08",
           realHour: previous && index === 3 ? 8 : previous ? 4 : 8,
           cost: previous && index === 3 ? 800 : previous ? 400 : 800
         };

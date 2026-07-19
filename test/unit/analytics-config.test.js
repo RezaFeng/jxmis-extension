@@ -173,7 +173,7 @@ test("analytics config falls back to tqSoftAmount for software service revenue",
 test("analytics config normalizes successful blank business values as zero", function () {
   const daily = normalizeDailyRow({
     projectId: "P1",
-    taskDate: "2026-07-01",
+    realEndTime: "2026-07-01",
     realHour: null,
     cost: ""
   });

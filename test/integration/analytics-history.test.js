@@ -63,7 +63,8 @@ function createHarness(options = {}) {
     window: windowRef,
     document: {},
     departments: options.departments || [],
-    config: {
+    scopeReady: true,
+    config: options.config || {
       projectFilters: {},
       riskThresholds: {},
       configVersion: "config-v1",
@@ -78,7 +79,10 @@ function createHarness(options = {}) {
       getQuery: function () { return query; },
       renderState: function (state) { states.push(state); },
       renderReport: function (report, viewOptions) { reports.push({ report, options: viewOptions }); },
-      setExportEnabled: function () {}
+      setExportEnabled: function () {},
+      setDepartment: function (departmentId) {
+        query.departmentId = departmentId;
+      }
     },
     chrome: {
       runtime: {
@@ -103,18 +107,50 @@ function createHarness(options = {}) {
   return { controller, pageMessages, runtimeMessages, states, reports, deliver };
 }
 
-test("analytics history query and refresh both request live data", async function () {
+test("analytics history cancels an unfinished request before a repeated query", async function () {
   const harness = createHarness();
   await harness.controller.query(false);
   await harness.controller.query(true);
   assert.equal(harness.runtimeMessages.length, 0);
-  assert.equal(harness.pageMessages.length, 2);
-  assert.ok(harness.pageMessages.every(function (message) {
+  const requests = harness.pageMessages.filter(function (message) {
     return message.type === MESSAGE_TYPES.ANALYTICS_REQUEST;
-  }));
-  assert.notEqual(harness.pageMessages[0].requestId, harness.pageMessages[1].requestId);
-  assert.equal(harness.pageMessages[1].forceRefresh, undefined);
-  assert.equal(harness.pageMessages[1].historyMode, undefined);
+  });
+  assert.equal(requests.length, 2);
+  assert.equal(harness.pageMessages.filter(function (message) {
+    return message.type === MESSAGE_TYPES.ANALYTICS_CANCEL;
+  }).length, 1);
+  assert.notEqual(requests[0].requestId, requests[1].requestId);
+  assert.equal(requests[1].forceRefresh, undefined);
+  assert.equal(requests[1].historyMode, undefined);
+});
+
+test("analytics department selection does not start a query", function () {
+  const harness = createHarness();
+  harness.controller.selectDepartment("D2");
+  assert.equal(harness.pageMessages.length, 0);
+});
+
+test("analytics date change reloads a current-input scope", function () {
+  const harness = createHarness();
+  harness.controller.handleDateRangeChange();
+  const request = harness.pageMessages.at(-1);
+  assert.equal(request.type, MESSAGE_TYPES.ANALYTICS_REQUEST);
+  assert.equal(request.scopeOnly, true);
+  assert.equal(request.departmentId, "all");
+});
+
+test("analytics date change keeps a scope that does not require current input", function () {
+  const harness = createHarness({
+    config: {
+      projectFilters: { onlyCurrentPeriodInput: false },
+      riskThresholds: {},
+      configVersion: "config-v1",
+      policyVersion: "policy-v1"
+    }
+  });
+  harness.controller.handleDateRangeChange();
+  assert.equal(harness.pageMessages.length, 0);
+  assert.equal(harness.states.at(-1).status, "日期已更新");
 });
 
 test("analytics history keeps a complete live report only in page memory", async function () {

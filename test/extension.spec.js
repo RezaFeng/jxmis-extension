@@ -169,7 +169,7 @@ test("weekly fixture loads only weekly automation and completes empty run", asyn
   await page.close();
 });
 
-async function openAnalytics(mode = "full") {
+async function openAnalytics(mode = "full", expectedOptionCount = 4) {
   const page = await openFixture(
     "/jxpmo/fixtures/project?mode=" + mode +
       "#!/jxpmo/project/ProjectInfoService/projectinDedaultHomePage"
@@ -183,7 +183,7 @@ async function openAnalytics(mode = "full") {
   await expect(page.locator("#app-wrapper")).toBeHidden();
   const host = page.locator("#cw-business-analytics-host");
   await expect(host.locator(".report-title strong")).toHaveText("经营分析");
-  await expect(host.locator('[data-field="department"] option')).toHaveCount(4);
+  await expect(host.locator('[data-field="department"] option')).toHaveCount(expectedOptionCount);
   await host.locator('[data-field="startDate"]').fill("2026-07-06");
   await host.locator('[data-field="endDate"]').fill("2026-07-12");
   return { page, host };
@@ -207,8 +207,14 @@ async function analyticsRequestCount(page, pathname) {
 test("business analytics fixture uses live formal scope, comparison and export", async function () {
   const { page, host } = await openAnalytics();
   await expectOnlyPageBundle(page, "cw-business-analytics-page-script", "page-business-analytics.js");
-  await expect(host.locator('[data-field="department"] option[value="D1"]')).toContainText("2");
+  await expect(host.locator('[data-field="department"] option[value="D1"]')).toContainText("1");
+  await expect(host.locator('[data-field="department"] option[value="all"]')).toHaveText("全部部门（2）");
+  await expect(host.getByRole("button", { name: "刷新", exact: true })).toHaveCount(0);
 
+  const projectDetailsBefore = await analyticsRequestCount(page, "/jxpmo/rest/project/ProjectPlanDetailService/query");
+  await host.locator('[data-field="department"]').selectOption("D1");
+  expect(await analyticsRequestCount(page, "/jxpmo/rest/project/ProjectPlanDetailService/query"))
+    .toBe(projectDetailsBefore);
   await queryDepartment(host, "D1", "Fixture Project One");
   await expect(host.locator('[data-role="report-status"]')).toContainText("正式范围 1/2");
   await expect(host.getByText("Fixture Project Three", { exact: true })).toHaveCount(0);
@@ -217,15 +223,8 @@ test("business analytics fixture uses live formal scope, comparison and export",
   const contractCard = host.locator('[data-role="overview-cards"] article').filter({ hasText: "软件与服务合同" });
   await expect(contractCard.locator("strong")).toHaveText("30 万元");
   const efficiencyCard = host.locator('[data-role="overview-cards"] article').filter({ hasText: "成本效率" });
-  await expect(efficiencyCard.locator("strong")).toHaveText(["0.00", "0.00"]);
+  await expect(efficiencyCard.locator("strong")).toHaveText(["1.25", "0.75"]);
   await expect(host.getByRole("heading", { name: "数据完整性与诊断" })).toBeVisible();
-
-  const dailyBeforeRefresh = await analyticsRequestCount(page, "/jxpmo/rest/project/taskDetailService/query");
-  await host.getByRole("button", { name: "刷新", exact: true }).click();
-  await expect(host.locator('[data-role="data-status"]')).toHaveText("报告已生成");
-  await expect.poll(function () {
-    return analyticsRequestCount(page, "/jxpmo/rest/project/taskDetailService/query");
-  }).toBe(dailyBeforeRefresh + 2);
 
   const downloadPromise = page.waitForEvent("download");
   await host.getByRole("button", { name: "导出HTML", exact: true }).click();
@@ -250,13 +249,14 @@ test("business analytics fixture aggregates all departments from one live collec
   await expect(host.locator('[data-role="company-analytics"] .coverage-summary'))
     .toHaveText("部门覆盖 2/2");
   expect(await analyticsRequestCount(page, "/jxpmo/rest/project/taskDetailService/query"))
-    .toBe(dailyBefore + 2);
+    .toBe(dailyBefore + 1);
   await page.close();
 });
 
 test("business analytics fixture completes project pagination before local scope", async function () {
   const { page, host } = await openAnalytics("paginated");
-  await expect(host.locator('[data-field="department"] option[value="D2"]')).toContainText("200");
+  await expect(host.locator('[data-field="department"] option[value="D2"]')).toContainText("1");
+  expect(await analyticsRequestCount(page, "/jxpmo/rest/project/ProjectInfoService/query")).toBe(4);
   await queryDepartment(host, "D1", "Fixture Project One");
   await page.close();
 });
@@ -278,10 +278,9 @@ test("business analytics fixture preserves partial results and session expiry", 
     .toBe(dailyBeforeRetry);
   await partial.page.close();
 
-  const session = await openAnalytics("session");
-  await session.host.locator('[data-field="department"]').selectOption("D1");
-  await session.host.getByRole("button", { name: "查询", exact: true }).click();
+  const session = await openAnalytics("session", 1);
   await expect(session.host.locator('[data-role="data-status"]')).toHaveText("登录已失效");
+  await expect(session.host.locator('[data-field="department"]')).toBeDisabled();
   await session.page.close();
 });
 

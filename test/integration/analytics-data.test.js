@@ -75,6 +75,57 @@ test("analytics data uses same-origin endpoints and normalizes all project pages
   assert.equal(projectUrls.some(function (request) { return request.url.includes("projectDept"); }), false);
 });
 
+test("analytics data plans project requests from status and outsourcing only", async function () {
+  const urls = [];
+  const data = createJxpmoAnalyticsData({
+    location: { origin: "https://jxmis.example.com" },
+    storage: { getItem: function () { return "/jxpmo"; } },
+    fetch: async function (url) {
+      urls.push(url);
+      const query = new URL(url).searchParams;
+      const currStatus = query.get("currStatus");
+      const outsourcing = query.get("outsourcing");
+      return {
+        ok: true,
+        json: async function () {
+          return {
+            recordsTotal: 2,
+            rows: ["J", "R"].map(function (classification) {
+              return {
+                projectId: [currStatus, outsourcing, classification].join("-"),
+                projectName: "项目",
+                projectDept: "D1",
+                attribute: "C",
+                classification,
+                currStatus,
+                outsourcing
+              };
+            })
+          };
+        }
+      };
+    }
+  });
+  const projects = await data.fetchProjects({
+    attribute: ["C"],
+    classification: ["J"],
+    currStatus: ["20", "50"],
+    outsourcing: ["01", "02"],
+    onlyCurrentPeriodInput: true
+  });
+  assert.equal(urls.length, 4);
+  assert.equal(projects.length, 4);
+  urls.forEach(function (url) {
+    const query = new URL(url).searchParams;
+    assert.ok(["20", "50"].includes(query.get("currStatus")));
+    assert.ok(["01", "02"].includes(query.get("outsourcing")));
+    assert.equal(query.get("attribute"), null);
+    assert.equal(query.get("classification"), null);
+    assert.equal(query.get("length"), "2000");
+    assert.equal(query.get("rows"), "2000");
+  });
+});
+
 test("analytics data skips projects without a department", async function () {
   const data = createJxpmoAnalyticsData({
     location: { origin: "https://jxmis.example.com" },
@@ -109,7 +160,7 @@ test("analytics data normalizes daily date, hours and blank cost", async functio
       return {
         ok: true,
         json: async function () {
-          return { recordsTotal: 1, rows: [{ projectId: "P1", costTime: "20260708", realHour: "8", cost: invalidCost ? null : "120.5" }] };
+          return { recordsTotal: 1, rows: [{ projectId: "P1", realEndTime: "20260708", realHour: "8", cost: invalidCost ? null : "120.5" }] };
         }
       };
     }
@@ -119,6 +170,54 @@ test("analytics data normalizes daily date, hours and blank cost", async functio
   assert.deepEqual(result.rows[0], { projectId: "P1", taskDate: "2026-07-08", realHour: 8, cost: 120.5 });
   invalidCost = true;
   assert.equal((await data.fetchDailyRows("2026-07-06", "2026-07-12")).rows[0].cost, 0);
+});
+
+test("analytics data normalizes the live task detail date schema", async function () {
+  const data = createJxpmoAnalyticsData({
+    location: { origin: "https://jxmis.example.com" },
+    storage: { getItem: function () { return "/jxpmo"; } },
+    fetch: async function () {
+      return {
+        ok: true,
+        json: async function () {
+          return {
+            recordsTotal: 3,
+            rows: [
+              {
+                projectId: "P1",
+                realEndTime: "2026-07-18 20:12:00",
+                submissionTime: "2026-07-19 08:15:00",
+                createTime: "2026-07-17 19:30:00",
+                realHour: 8,
+                cost: 880
+              },
+              {
+                projectId: "P2",
+                realEndTime: "",
+                submissionTime: "2026-07-19 08:15:00",
+                createTime: "2026-07-17 19:30:00",
+                realHour: 4,
+                cost: 440
+              },
+              {
+                projectId: "P3",
+                realEndTime: null,
+                submissionTime: null,
+                createTime: "2026-07-17 19:30:00",
+                realHour: 2,
+                cost: 220
+              }
+            ]
+          };
+        }
+      };
+    }
+  });
+  assert.deepEqual((await data.fetchDailyRows("2026-07-17", "2026-07-19")).rows, [
+    { projectId: "P1", taskDate: "2026-07-18", realHour: 8, cost: 880 },
+    { projectId: "P2", taskDate: "2026-07-19", realHour: 4, cost: 440 },
+    { projectId: "P3", taskDate: "2026-07-17", realHour: 2, cost: 220 }
+  ]);
 });
 
 test("analytics data distinguishes empty WBS and normalizes milestone completion", async function () {

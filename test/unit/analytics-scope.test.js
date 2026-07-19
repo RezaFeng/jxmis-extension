@@ -21,9 +21,9 @@ test("analytics scope excludes privLevel 1 and keeps nested current departments"
 
 test("analytics scope applies current input without changing the comparison candidate set", function () {
   const projects = [
-    { projectId: "P1", projectNo: "001", projectName: "项目一" },
-    { projectId: "P2", projectNo: "002", projectName: "项目二" },
-    { projectId: "P3", projectNo: "003", projectName: "项目三" }
+    { projectId: "P1", projectNo: "001", projectName: "项目一", realExeuCost: 100 },
+    { projectId: "P2", projectNo: "002", projectName: "项目二", realExeuCost: 200 },
+    { projectId: "P3", projectNo: "003", projectName: "项目三", realExeuCost: 300 }
   ];
   const result = applyCurrentPeriodInputScope({
     projects,
@@ -39,8 +39,8 @@ test("analytics scope applies current input without changing the comparison cand
   }), [["P1", 1, 0], ["P2", 0, 2]]);
 });
 
-test("analytics scope preserves candidates when current input is unavailable", function () {
-  const projects = [{ projectId: "P1", projectName: "项目一" }];
+test("analytics scope preserves cost-positive candidates when current input is unavailable", function () {
+  const projects = [{ projectId: "P1", projectName: "项目一", realExeuCost: 100 }];
   const result = applyCurrentPeriodInputScope({
     projects,
     currentDailyRows: [],
@@ -52,6 +52,26 @@ test("analytics scope preserves candidates when current input is unavailable", f
   assert.equal(result.formalProjectCount, null);
   assert.equal(result.status, "failed");
   assert.equal(result.enteredProjectIds, null);
+});
+
+test("analytics scope always excludes projects without positive execution cost", function () {
+  const projects = [
+    { projectId: "P1", projectName: "正成本", realExeuCost: 100 },
+    { projectId: "P2", projectName: "零成本", realExeuCost: 0 },
+    { projectId: "P3", projectName: "空成本", realExeuCost: null },
+    { projectId: "P4", projectName: "负成本", realExeuCost: -1 }
+  ];
+  const result = applyCurrentPeriodInputScope({
+    projects,
+    currentDailyRows: projects.map(function (project) {
+      return { projectId: project.projectId, realHour: 8 };
+    }),
+    onlyCurrentPeriodInput: false
+  });
+  assert.deepEqual(result.projects, [projects[0]]);
+  assert.equal(result.candidateProjectCount, 4);
+  assert.equal(result.executionCandidateCount, 1);
+  assert.equal(result.excludedExecutionCostCount, 3);
 });
 
 test("analytics scope filters locally and groups by exact department id", function () {

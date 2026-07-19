@@ -185,6 +185,16 @@ test("analytics html export creates a stable report filename", function () {
   );
 });
 
+test("analytics html export marks an incomplete report in content and filename", function () {
+  const partial = report();
+  partial.complete = false;
+  assert.match(createOfflineReport(partial), /报告状态 数据不完整/);
+  assert.equal(
+    createOfflineReportFileName(partial, new Date("2026-07-13T08:09:10Z")),
+    "经营分析_交付一部_2026-07-06_2026-07-12_数据不完整_20260713-080910.html"
+  );
+});
+
 test("analytics html export controller downloads the formal report", async function () {
   const downloads = [];
   const enabled = [];
@@ -199,6 +209,7 @@ test("analytics html export controller downloads the formal report", async funct
     window: windowRef,
     document: {},
     config: { projectFilters: {}, riskThresholds: {}, configVersion: "C1", policyVersion: "P1" },
+    scopeReady: true,
     navigation: { restore: function () {}, isActive: function () { return false; }, syncLocation: function () {} },
     view: {
       getQuery: function () { return { departmentId: "D1", departmentName: "交付一部", startDate: "2026-07-06", endDate: "2026-07-12" }; },

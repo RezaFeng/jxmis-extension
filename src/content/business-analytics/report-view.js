@@ -636,7 +636,6 @@ export function createBusinessAnalyticsReportView(adapters) {
         <label><span>结束日期</span><input data-field="endDate" type="date"></label>
         <div class="toolbar-actions">
           <button type="button" class="primary" data-action="query">查询</button>
-          <button type="button" data-action="refresh">刷新</button>
           <button type="button" data-action="cancel" hidden>取消</button>
           <button type="button" data-action="export" disabled>导出HTML</button>
           <button type="button" class="icon-button" data-action="settings" title="设置" aria-label="设置">⚙</button>
@@ -663,10 +662,19 @@ export function createBusinessAnalyticsReportView(adapters) {
       progress: root.querySelector('[data-role="progress"]'),
       progressBar: root.querySelector('[data-role="progress"] span'),
       summary: root.querySelector('[data-role="summary"]'),
-      cancel: root.querySelector('[data-action="cancel"]')
+      cancel: root.querySelector('[data-action="cancel"]'),
+      query: root.querySelector('[data-action="query"]')
     };
     root.querySelectorAll("[data-action]").forEach(function (button) {
       button.addEventListener("click", function () { adapters.onAction(button.dataset.action); });
+    });
+    elements.department.disabled = true;
+    elements.query.disabled = true;
+    elements.department.addEventListener("change", function () {
+      elements.query.disabled = elements.department.disabled || !elements.department.value;
+    });
+    [elements.startDate, elements.endDate].forEach(function (input) {
+      input.addEventListener("change", function () { adapters.onDateRange?.(); });
     });
   }
 
@@ -676,26 +684,50 @@ export function createBusinessAnalyticsReportView(adapters) {
   }
 
   function setDepartments(departments) {
+    const rows = departments || [];
     elements.department.textContent = "";
     const placeholder = document.createElement("option");
     placeholder.value = "";
-    placeholder.textContent = "请选择部门";
+    placeholder.textContent = rows.length > 0 ? "请选择部门" : "当前条件无可用部门";
     elements.department.appendChild(placeholder);
-    (departments || []).forEach(function (department) {
+    rows.forEach(function (department) {
       const option = document.createElement("option");
       option.value = department.id;
       option.dataset.departmentName = department.name;
       option.textContent = department.name + "（" + department.projectCount + "）";
       elements.department.appendChild(option);
     });
-    const all = document.createElement("option");
-    all.value = "all";
-    all.textContent = "全部部门";
-    elements.department.appendChild(all);
+    if (rows.length > 0) {
+      const all = document.createElement("option");
+      all.value = "all";
+      all.dataset.departmentName = "全部部门";
+      all.textContent = "全部部门（" + rows.reduce(function (sum, department) {
+        return sum + department.projectCount;
+      }, 0) + "）";
+      elements.department.appendChild(all);
+    }
+    elements.query.disabled = true;
   }
 
   function setDepartment(departmentId) {
     elements.department.value = String(departmentId || "");
+    elements.query.disabled = elements.department.disabled || !elements.department.value;
+  }
+
+  function setScopeEnabled(enabled) {
+    elements.department.disabled = !enabled;
+    elements.query.disabled = !enabled || !elements.department.value;
+  }
+
+  function setQueryPending(pending) {
+    elements.query.disabled = pending || elements.department.disabled || !elements.department.value;
+  }
+
+  function clearReport() {
+    formalReport = null;
+    selectedIds = new Set();
+    elements.summary.textContent = "";
+    elements.summary.hidden = true;
   }
 
   function setExportEnabled(enabled) {
@@ -716,7 +748,7 @@ export function createBusinessAnalyticsReportView(adapters) {
   function renderState(state) {
     const states = {
       initial: ["准备查询", "请选择部门和日期后查询。"],
-      scope: ["加载部门", "正在读取当前可访问的部门和项目范围..."],
+      scope: ["加载部门", state.message || "正在读取当前可访问的部门和项目范围..."],
       loading: ["生成报告", state.message || "正在获取经营数据..."],
       empty: ["当前筛选无项目", "当前配置和部门下没有匹配项目。"],
       partial: ["报告部分可用", state.message || "部分数据未获取，可查看完整性诊断。"],
@@ -944,6 +976,9 @@ export function createBusinessAnalyticsReportView(adapters) {
     setDateRange,
     setDepartments,
     setDepartment,
+    setScopeEnabled,
+    setQueryPending,
+    clearReport,
     setExportEnabled,
     getQuery,
     renderState,

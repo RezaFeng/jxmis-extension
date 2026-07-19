@@ -1,4 +1,5 @@
 import { normalizeProject } from "../../analytics/domain.js";
+import { projectMatchesFilters, validateProjectFilters } from "../../analytics/config.js";
 import { fetchJson, getBaseUrl } from "../shared/jxmis-transport.js";
 import {
   normalizeDailyRow,
@@ -13,7 +14,32 @@ import {
 } from "./weekly-reports.js";
 import { associateReceivableRows } from "./invoice.js";
 
-const DEFAULT_PAGE_SIZE = 200;
+const DEFAULT_PAGE_SIZE = 2000;
+
+async function mapWithConcurrency(items, limit, operation) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await operation(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+function projectQueryGroups(filters) {
+  const values = function (field) {
+    return filters && Array.isArray(filters[field]) ? filters[field] : [null];
+  };
+  return values("currStatus").flatMap(function (currStatus) {
+    return values("outsourcing").map(function (outsourcing) {
+      return { currStatus, outsourcing };
+    });
+  });
+}
 
 function responseRows(payload) {
   if (Array.isArray(payload)) {
@@ -72,6 +98,7 @@ export function createJxpmoAnalyticsData(adapters) {
   const storage = adapters.storage;
   const URLSearchParamsCtor = adapters.URLSearchParams || URLSearchParams;
   const pageSize = adapters.pageSize || DEFAULT_PAGE_SIZE;
+  const projectConcurrency = Math.min(8, Math.max(1, adapters.projectConcurrency || 8));
   const baseUrl = function () { return getBaseUrl(location, storage); };
 
   function sessionExpired() {
@@ -127,29 +154,50 @@ export function createJxpmoAnalyticsData(adapters) {
     );
   }
 
-  async function fetchProjects(signal) {
+  async function fetchProjects(projectFilters, signal) {
+    if (
+      projectFilters &&
+      typeof projectFilters.aborted === "boolean" &&
+      typeof projectFilters.addEventListener === "function"
+    ) {
+      signal = projectFilters;
+      projectFilters = null;
+    }
+    const filters = projectFilters ? validateProjectFilters(projectFilters) : null;
     const permissionParams = Object.assign({}, adapters.projectQueryParams || {});
-    ["likeAll", "projectDept", "projectDeptName", "start", "length", "rows", "page", "draw"]
+    [
+      "likeAll", "projectDept", "projectDeptName", "attribute", "classification",
+      "currStatus", "outsourcing", "start", "length", "rows", "page", "draw"
+    ]
       .forEach(function (key) { delete permissionParams[key]; });
-    const rows = await fetchAllAnalyticsPages(async function (page) {
-      const params = new URLSearchParamsCtor(Object.assign({}, permissionParams, {
-        queryName: "queryList",
-        filterQuery: "true",
-        queryType: "page",
-        draw: String(page.page),
-        page: String(page.page),
-        start: String(page.offset),
-        length: String(page.pageSize),
-        rows: String(page.pageSize)
-      }));
-      return fetchAnalyticsJson(
-        baseUrl() + "/rest/project/ProjectInfoService/query?" + params.toString(),
-        "fetch analytics projects page " + page.page,
-        signal
-      );
-    }, { pageSize });
+    const groupedRows = await mapWithConcurrency(
+      projectQueryGroups(filters),
+      projectConcurrency,
+      async function (group) {
+        return fetchAllAnalyticsPages(async function (page) {
+          const query = Object.assign({}, permissionParams, {
+            queryName: "queryList",
+            filterQuery: "true",
+            queryType: "page",
+            draw: String(page.page),
+            page: String(page.page),
+            start: String(page.offset),
+            length: String(page.pageSize),
+            rows: String(page.pageSize)
+          });
+          if (group.currStatus !== null) query.currStatus = group.currStatus;
+          if (group.outsourcing !== null) query.outsourcing = group.outsourcing;
+          const params = new URLSearchParamsCtor(query);
+          return fetchAnalyticsJson(
+            baseUrl() + "/rest/project/ProjectInfoService/query?" + params.toString(),
+            "fetch analytics projects page " + page.page,
+            signal
+          );
+        }, { pageSize });
+      }
+    );
     const byId = new Map();
-    rows.forEach(function (row) {
+    groupedRows.flat().forEach(function (row) {
       if (
         row &&
         typeof row === "object" &&
@@ -161,7 +209,9 @@ export function createJxpmoAnalyticsData(adapters) {
         return;
       }
       const project = normalizeProject(row);
-      byId.set(project.projectId, project);
+      if (!filters || projectMatchesFilters(project, filters)) {
+        byId.set(project.projectId, project);
+      }
     });
     return [...byId.values()];
   }

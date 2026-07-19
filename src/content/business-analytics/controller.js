@@ -22,15 +22,18 @@ export function createBusinessAnalyticsController(adapters) {
     cssUrl: chrome.runtime.getURL("business-analytics.css"),
     onAction: function (action) { controller.handleAction(action); },
     onSelection: function (projectIds) { controller.selectProjects(projectIds); },
-    onDepartment: function (departmentId) { controller.selectDepartment(departmentId); }
+    onDepartment: function (departmentId) { controller.selectDepartment(departmentId); },
+    onDateRange: function () { controller.handleDateRangeChange(); }
   });
   let config = adapters.config;
   let activeRequestId = null;
+  let activeRequestKind = null;
   let lastQuery = null;
   let requestSequence = 0;
   let formalInput = null;
   let formalReport = null;
   let availableDepartments = adapters.departments || [];
+  let scopeReady = adapters.scopeReady === true || availableDepartments.length > 0;
   const now = adapters.now || function () { return new Date(); };
 
   function download(value) {
@@ -58,8 +61,16 @@ export function createBusinessAnalyticsController(adapters) {
   }
 
   function send(type, payload) {
+    if (activeRequestId) {
+      window.postMessage(createRequestMessage(
+        SOURCES.ANALYTICS_CONTENT,
+        MESSAGE_TYPES.ANALYTICS_CANCEL,
+        activeRequestId
+      ), "*");
+    }
     const id = requestId(type === MESSAGE_TYPES.ANALYTICS_REQUEST ? "analytics" : "request");
     activeRequestId = id;
+    activeRequestKind = payload && payload.scopeOnly === true ? "scope" : "query";
     window.postMessage(createRequestMessage(
       SOURCES.ANALYTICS_CONTENT,
       type,
@@ -81,9 +92,22 @@ export function createBusinessAnalyticsController(adapters) {
     const shadow = navigation.mount();
     view.mount(shadow);
     view.setDateRange(getDefaultDateRange(new Date()));
-    view.renderState({ kind: "scope" });
     await loadConfig();
+    loadScope();
+  }
+
+  function loadScope() {
     const range = view.getQuery();
+    normalizeDateRange(range);
+    scopeReady = false;
+    availableDepartments = [];
+    formalInput = null;
+    formalReport = null;
+    lastQuery = null;
+    view.clearReport?.();
+    view.setExportEnabled?.(false);
+    view.setScopeEnabled?.(false);
+    view.renderState({ kind: "scope" });
     send(MESSAGE_TYPES.ANALYTICS_REQUEST, {
       scopeOnly: true,
       departmentId: "all",
@@ -96,12 +120,15 @@ export function createBusinessAnalyticsController(adapters) {
   async function query() {
     try {
       const values = view.getQuery();
+      if (!scopeReady) throw new Error("部门范围尚未加载");
       if (!values.departmentId) throw new Error("请选择部门");
       normalizeDateRange(values);
       lastQuery = Object.assign({}, values);
       formalInput = null;
       formalReport = null;
+      view.clearReport?.();
       view.setExportEnabled?.(false);
+      view.setQueryPending?.(true);
       view.renderState({ kind: "loading", message: "正在实时获取经营数据..." });
       send(MESSAGE_TYPES.ANALYTICS_REQUEST, Object.assign({}, values, {
         projectFilters: config.projectFilters,
@@ -122,11 +149,14 @@ export function createBusinessAnalyticsController(adapters) {
       activeRequestId
     ), "*");
     activeRequestId = null;
+    activeRequestKind = null;
+    view.setQueryPending?.(false);
     view.renderState({ kind: "initial", status: "已取消" });
   }
 
   function retryFailed() {
     if (!lastQuery || !formalInput || !(formalInput.failedRequests || []).length) return;
+    view.setQueryPending?.(true);
     view.renderState({ kind: "loading", message: "正在重试失败数据源..." });
     send(MESSAGE_TYPES.ANALYTICS_REQUEST, Object.assign({}, lastQuery, {
       retryFailed: true,
@@ -152,7 +182,6 @@ export function createBusinessAnalyticsController(adapters) {
       navigation.restore();
     }
     if (action === "query") query();
-    if (action === "refresh" && lastQuery) query();
     if (action === "cancel") cancel();
     if (action === "settings") chrome.runtime.openOptionsPage();
     if (action === "retry-failed") retryFailed();
@@ -174,7 +203,38 @@ export function createBusinessAnalyticsController(adapters) {
   function selectDepartment(departmentId) {
     if (!view.setDepartment) return;
     view.setDepartment(departmentId);
-    query();
+  }
+
+  function handleDateRangeChange() {
+    try {
+      const values = view.getQuery();
+      normalizeDateRange(values);
+      if (activeRequestId) {
+        window.postMessage(createRequestMessage(
+          SOURCES.ANALYTICS_CONTENT,
+          MESSAGE_TYPES.ANALYTICS_CANCEL,
+          activeRequestId
+        ), "*");
+        activeRequestId = null;
+        activeRequestKind = null;
+      }
+      view.setQueryPending?.(false);
+      formalInput = null;
+      formalReport = null;
+      lastQuery = null;
+      view.clearReport?.();
+      view.setExportEnabled?.(false);
+      if (config.projectFilters.onlyCurrentPeriodInput === false) {
+        view.renderState({ kind: "initial", status: "日期已更新" });
+        return;
+      }
+      view.setDepartment?.("");
+      loadScope();
+    } catch (error) {
+      scopeReady = false;
+      view.setScopeEnabled?.(false);
+      view.renderState({ kind: "error", message: error.message || String(error) });
+    }
   }
 
   function handlePageMessage(event) {
@@ -194,11 +254,22 @@ export function createBusinessAnalyticsController(adapters) {
       const percent = progress.totalProjects
         ? Math.round((progress.completedProjects || 0) / progress.totalProjects * 100)
         : 12;
-      view.renderState({ kind: "loading", message: progress.stage || "处理中", percent });
+      view.renderState({
+        kind: activeRequestKind === "scope" ? "scope" : "loading",
+        message: progress.stage || "处理中",
+        percent
+      });
       return;
     }
+    const requestKind = activeRequestKind;
     activeRequestId = null;
+    activeRequestKind = null;
     if (message.type === MESSAGE_TYPES.ANALYTICS_ERROR) {
+      if (requestKind === "scope") {
+        scopeReady = false;
+        view.setScopeEnabled?.(false);
+      }
+      view.setQueryPending?.(false);
       view.renderState({
         kind: message.code === "SESSION_EXPIRED" ? "session" : "error",
         message: message.error
@@ -209,6 +280,8 @@ export function createBusinessAnalyticsController(adapters) {
     if (result.scopeOnly) {
       availableDepartments = result.scope.departments || [];
       view.setDepartments(result.scope.departments);
+      scopeReady = true;
+      view.setScopeEnabled?.(true);
       view.renderState({ kind: "initial", status: "部门已加载" });
       return;
     }
@@ -229,6 +302,7 @@ export function createBusinessAnalyticsController(adapters) {
       formal: true,
       company: lastQuery.departmentId === "all"
     });
+    view.setQueryPending?.(false);
     view.setExportEnabled?.(true);
   }
 
@@ -257,6 +331,7 @@ export function createBusinessAnalyticsController(adapters) {
     handleAction,
     selectProjects,
     selectDepartment,
+    handleDateRangeChange,
     ensureNavigation,
     syncLocation
   };

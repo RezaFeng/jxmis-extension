@@ -24,13 +24,16 @@ export function normalizeDailyRow(raw) {
   if (!raw || typeof raw !== "object") {
     throw new AnalyticsSchemaError("daily", "must be an object", raw);
   }
+  const taskDate = [
+    raw.realEndTime,
+    raw.submissionTime,
+    raw.createTime
+  ].find(function (value) {
+    return value !== null && value !== undefined && String(value).trim() !== "";
+  });
   return {
     projectId: normalizeIdentifier(raw.projectId ?? raw.proId, "daily.projectId", { required: true }),
-    taskDate: normalizeApiDate(
-      raw.taskDate ?? raw.workDate ?? raw.fillDate ?? raw.costTime,
-      "daily.taskDate",
-      { required: true }
-    ),
+    taskDate: normalizeApiDate(taskDate, "daily.taskDate", { required: true }),
     realHour: normalizeFiniteNumber(raw.realHour, "daily.realHour", { blankAsZero: true }),
     cost: normalizeFiniteNumber(raw.cost, "daily.cost", { blankAsZero: true })
   };

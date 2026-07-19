@@ -8,6 +8,18 @@ import {
 import { splitWeeklyReportsByRange } from "./weekly-reports.js";
 
 const PROJECT_SOURCES = Object.freeze(["wbs", "milestones", "weeklyReports"]);
+const PROJECT_FILTER_FIELDS = Object.freeze(["attribute", "classification", "currStatus", "outsourcing"]);
+
+function projectFilterKey(filters = {}) {
+  return JSON.stringify(Object.fromEntries(PROJECT_FILTER_FIELDS.map(function (field) {
+    const value = filters[field];
+    return [field, Array.isArray(value) ? value.slice().sort() : null];
+  })));
+}
+
+function rangeKey(startDate, endDate) {
+  return String(startDate) + "::" + String(endDate);
+}
 
 function errorMessage(error) {
   return (error && error.message ? error.message : String(error)).split(" url=")[0];
@@ -64,9 +76,14 @@ export function createAnalyticsCollector(adapters) {
   const sleep = adapters.sleep || function (ms) {
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   };
-  const concurrency = Math.min(4, Math.max(1, adapters.concurrency || 4));
+  const concurrency = Math.min(8, Math.max(1, adapters.concurrency || 8));
   let active = null;
   let projectCatalog = [];
+  let departmentCatalog = null;
+  let projectCatalogKey = null;
+  let scopeWorkset = null;
+  let currentDailyWorkset = null;
+  let previousDailyWorkset = null;
 
   async function retry(operation, signal) {
     let attempt = 0;
@@ -115,6 +132,90 @@ export function createAnalyticsCollector(adapters) {
     return base.sourceStatus.length > 0 ? successful / base.sourceStatus.length : 1;
   }
 
+  function createScopeState(request, departments, projects, currentDaily) {
+    const staticScope = buildProjectScope({
+      departments,
+      projects,
+      filters: request.projectFilters,
+      recentDepartmentIds: request.recentDepartmentIds
+    });
+    const formal = applyCurrentPeriodInputScope({
+      projects: staticScope.allProjects,
+      currentDailyRows: currentDaily ? currentDaily.rows : [],
+      previousDailyRows: [],
+      currentAvailable: Boolean(currentDaily),
+      previousAvailable: false,
+      onlyCurrentPeriodInput: staticScope.filters.onlyCurrentPeriodInput
+    });
+    const scope = buildProjectScope({
+      departments,
+      projects: formal.projects,
+      filters: request.projectFilters,
+      recentDepartmentIds: request.recentDepartmentIds
+    });
+    scope.diagnostics = Object.assign({}, staticScope.diagnostics, {
+      candidateProjectCount: formal.candidateProjectCount,
+      executionCandidateCount: formal.executionCandidateCount,
+      excludedExecutionCostCount: formal.excludedExecutionCostCount,
+      formalProjectCount: formal.formalProjectCount
+    });
+    return {
+      key: projectFilterKey(request.projectFilters) + "::" +
+        (staticScope.filters.onlyCurrentPeriodInput
+          ? rangeKey(request.startDate, request.endDate)
+          : "all-periods"),
+      departments,
+      projects,
+      staticScope,
+      scope,
+      currentDaily,
+      formalScope: formal
+    };
+  }
+
+  async function ensureScopeWorkset(request, signal, progress) {
+    const filtersKey = projectFilterKey(request.projectFilters);
+    const needsCurrentDaily = request.projectFilters.onlyCurrentPeriodInput !== false;
+    const currentKey = rangeKey(request.startDate, request.endDate);
+    const desiredScopeKey = filtersKey + "::" + (needsCurrentDaily ? currentKey : "all-periods");
+    if (scopeWorkset && scopeWorkset.key === desiredScopeKey) return scopeWorkset;
+
+    const nextDepartments = departmentCatalog;
+    const nextProjects = projectCatalogKey === filtersKey ? projectCatalog : null;
+    const nextCurrentDaily = currentDailyWorkset && currentDailyWorkset.key === currentKey
+      ? currentDailyWorkset.value
+      : null;
+    const definitions = [];
+    if (!nextDepartments) {
+      definitions.push(["departments", function () { return data.fetchDepartments(signal); }]);
+    }
+    if (!nextProjects) {
+      definitions.push(["projects", function () {
+        return data.fetchProjects(request.projectFilters, signal);
+      }]);
+    }
+    if (needsCurrentDaily && !nextCurrentDaily) {
+      definitions.push(["currentDaily", function () {
+        return data.fetchDailyRows(request.startDate, request.endDate, signal);
+      }]);
+    }
+    const loaded = {};
+    await Promise.all(definitions.map(async function ([source, operation]) {
+      progress(source);
+      loaded[source] = await retry(operation, signal);
+    }));
+    const departments = nextDepartments || loaded.departments;
+    const projects = nextProjects || loaded.projects;
+    const currentDaily = nextCurrentDaily || loaded.currentDaily || null;
+    const state = createScopeState(request, departments, projects, currentDaily);
+    departmentCatalog = departments;
+    projectCatalog = projects;
+    projectCatalogKey = filtersKey;
+    if (currentDaily) currentDailyWorkset = { key: currentKey, value: currentDaily };
+    scopeWorkset = state;
+    return state;
+  }
+
   async function collect(request, onProgress = function () {}) {
     if (!request || !isValidRequestId(request.requestId)) {
       throw new Error("analytics requestId is required");
@@ -127,18 +228,19 @@ export function createAnalyticsCollector(adapters) {
       if (!signal.aborted) onProgress(Object.assign({ requestId: request.requestId, stage }, extra));
     };
     try {
-      progress("departments");
-      const departments = await retry(function () { return data.fetchDepartments(signal); }, signal);
-      progress("projects");
-      const projects = await retry(function () { return data.fetchProjects(signal); }, signal);
-      projectCatalog = projects;
-      const scope = buildProjectScope({
-        departments,
-        projects,
-        filters: request.projectFilters,
-        recentDepartmentIds: request.recentDepartmentIds
-      });
-      const candidateProjects = selectDepartmentProjects(scope, String(request.departmentId));
+      let scopeState;
+      try {
+        scopeState = await ensureScopeWorkset(request, signal, progress);
+      } catch (error) {
+        controller.abort();
+        throw error;
+      }
+      const scope = scopeState.scope;
+      const projects = scopeState.projects;
+      const candidateProjects = selectDepartmentProjects(
+        scopeState.staticScope,
+        String(request.departmentId)
+      );
       const base = {
         requestId: request.requestId,
         departmentId: request.departmentId,
@@ -162,6 +264,10 @@ export function createAnalyticsCollector(adapters) {
         sourceStatus: []
       };
       if (request.scopeOnly === true) {
+        const scopeProjects = selectDepartmentProjects(scope, String(request.departmentId));
+        base.projects = scopeProjects;
+        base.formalScope = Object.assign({}, scopeState.formalScope);
+        delete base.formalScope.projects;
         return Object.assign(base, {
           scopeOnly: true,
           complete: true,
@@ -172,18 +278,42 @@ export function createAnalyticsCollector(adapters) {
       const previous = getPreviousDateRange(request);
       const weeklyRange = { startDate: previous.startDate, endDate: request.endDate };
       progress("sharedSources", { totalProjects: candidateProjects.length });
-      const sharedDefinitions = [
-        ["daily", function () { return data.fetchDailyRows(request.startDate, request.endDate, signal); }],
-        ["previousDaily", function () { return data.fetchDailyRows(previous.startDate, previous.endDate, signal); }],
-        ["invoices", function () {
-          return data.fetchReceivables(request.departmentId, projects, signal);
-        }]
-      ];
+      const currentKey = rangeKey(request.startDate, request.endDate);
+      const previousKey = rangeKey(previous.startDate, previous.endDate);
       const shared = {};
+      if (currentDailyWorkset && currentDailyWorkset.key === currentKey) {
+        shared.daily = currentDailyWorkset.value;
+        base.sourceStatus.push({ source: "daily", status: shared.daily.status });
+      }
+      if (previousDailyWorkset && previousDailyWorkset.key === previousKey) {
+        shared.previousDaily = previousDailyWorkset.value;
+        base.sourceStatus.push({ source: "previousDaily", status: shared.previousDaily.status });
+      }
+      const sharedDefinitions = [];
+      if (!shared.daily) {
+        sharedDefinitions.push(["daily", function () {
+          return data.fetchDailyRows(request.startDate, request.endDate, signal);
+        }]);
+      }
+      if (!shared.previousDaily) {
+        sharedDefinitions.push(["previousDaily", function () {
+          return data.fetchDailyRows(previous.startDate, previous.endDate, signal);
+        }]);
+      }
+      sharedDefinitions.push(["invoices", function () {
+        return data.fetchReceivables(request.departmentId, projects, signal);
+      }]);
       await Promise.all(sharedDefinitions.map(async function ([source, operation]) {
         try {
           shared[source] = await retry(operation, signal);
           base.sourceStatus.push({ source, status: shared[source].status });
+          if (source === "daily") {
+            currentDailyWorkset = { key: currentKey, value: shared[source] };
+            scopeWorkset.currentDaily = shared[source];
+          }
+          if (source === "previousDaily") {
+            previousDailyWorkset = { key: previousKey, value: shared[source] };
+          }
         } catch (error) {
           if (isSessionExpired(error)) {
             controller.abort();
@@ -194,6 +324,9 @@ export function createAnalyticsCollector(adapters) {
           base.failedRequests.push({ source, error: errorMessage(error) });
         }
       }));
+      shared.daily ||= { status: "failed", rows: [] };
+      shared.previousDaily ||= { status: "failed", rows: [] };
+      shared.invoices ||= { status: "failed", rows: [], diagnostics: {} };
       base.dailyByProject = groupByProject(shared.daily.rows);
       base.previousDailyByProject = groupByProject(shared.previousDaily.rows);
       base.invoiceRows = shared.invoices.rows;
@@ -338,8 +471,20 @@ export function createAnalyticsCollector(adapters) {
         }
         try {
           const value = await retry(operation, signal);
-          if (descriptor.source === "daily") result.dailyByProject = groupByProject(value.rows);
-          if (descriptor.source === "previousDaily") result.previousDailyByProject = groupByProject(value.rows);
+          if (descriptor.source === "daily") {
+            result.dailyByProject = groupByProject(value.rows);
+            currentDailyWorkset = {
+              key: rangeKey(request.startDate, request.endDate),
+              value
+            };
+          }
+          if (descriptor.source === "previousDaily") {
+            result.previousDailyByProject = groupByProject(value.rows);
+            previousDailyWorkset = {
+              key: rangeKey(previousRange.startDate, previousRange.endDate),
+              value
+            };
+          }
           if (descriptor.source === "invoices") {
             result.invoiceRows = value.rows;
             result.invoicesByProject = groupByProject(value.rows.filter(function (row) {
