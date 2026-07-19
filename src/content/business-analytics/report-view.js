@@ -244,11 +244,11 @@ function milestoneColumns(endDate) {
     { key: "planEndTime", label: "计划日" },
     {
       label: "状态",
-      value: function (row) { return String(row.confirmStatus) === "2" ? "已完成" : "未完成"; }
+      value: function (row) { return row.completed === true ? "已完成" : "未完成"; }
     },
     {
       label: "距截止日",
-      value: function (row) { return relativeDateLabel(row.planEndTime, endDate, String(row.confirmStatus) === "2"); }
+      value: function (row) { return relativeDateLabel(row.planEndTime, endDate, row.completed === true); }
     }
   ];
 }

@@ -72,7 +72,7 @@ const MILESTONE_COLUMNS = [
   { key: "group", label: "分组" }, { key: "projectNo", label: "编码" },
   { key: "projectName", label: "项目名称" }, { key: "projectManagerName", label: "PM" },
   { key: "nodeName", label: "节点" }, { key: "planEndTime", label: "计划日" },
-  { key: "confirmStatus", label: "状态" }
+  { label: "状态", value: function (row) { return row.completed === true ? "已完成" : "未完成"; } }
 ];
 
 const INVOICE_COLUMNS = [

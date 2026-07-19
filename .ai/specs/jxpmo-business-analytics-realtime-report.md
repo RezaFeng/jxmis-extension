@@ -60,6 +60,7 @@
 - 页面内可暂存本次正式数据和失败 descriptor；关闭页面即丢弃。
 - 当前累计指标包括软件与服务合同、BAC、AC、CR、累计 EV、整体人均产值、CPI、CCPI、EAC，只显示实时值，不做周期环比。
 - 软件与服务合同优先使用项目 `subcontractAmount`；其为空时使用同单位的 `tqSoftAmount`，两者均为空时为 0。非空非法值保持 schema error。
+- 里程碑完成状态统一为 `confirmStatus === "2"`，或同时存在有效 `realEndTime` 且 `trim(restReason) === "确认"`；`finishStatus` 不参与判断，已完成节点不计逾期。
 - 期间比较只覆盖可按日期重建的数据：日报投入/成本、区间 WBS PV/EV/SPI、区间产服 EV/CPI/CCPI/人均、里程碑、回款和周报计划。
 - 上期是当前区间之前紧邻的等长区间；自然周自动对应上一周一至周日。
 - 本期和上期使用同一本期正式项目集合，避免项目集合变化污染环比。

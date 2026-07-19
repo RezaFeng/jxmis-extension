@@ -170,9 +170,9 @@ test("milestone view renders cards, overdue and upcoming project lists", functio
   const report = createAnalyticsEngine().buildReport(analyticsInput({
     milestonesByProject: {
       P1: [
-        { milestoneId: "M1", nodeName: "上线", planEndTime: "2026-07-05", actualEndTime: null, confirmStatus: "1" },
-        { milestoneId: "M2", nodeName: "验收", planEndTime: "2026-07-10", actualEndTime: "2026-07-10", confirmStatus: "2" },
-        { milestoneId: "M3", nodeName: "发布", planEndTime: "2026-07-15", actualEndTime: null, confirmStatus: "1" }
+        { milestoneId: "M1", nodeName: "上线", planEndTime: "2026-07-05", actualEndTime: null, completed: false },
+        { milestoneId: "M2", nodeName: "验收", planEndTime: "2026-07-10", actualEndTime: "2026-07-16", completed: true },
+        { milestoneId: "M3", nodeName: "发布", planEndTime: "2026-07-15", actualEndTime: null, completed: false }
       ]
     }
   }));
@@ -188,6 +188,7 @@ test("milestone view renders cards, overdue and upcoming project lists", functio
   assert.match(section.textContent, /已逾期/);
   assert.match(section.textContent, /未来 7 天/);
   assert.match(section.textContent, /JX-1项目一经理甲上线2026-07-05未完成逾期 7 天/);
+  assert.match(section.textContent, /JX-1项目一经理甲验收2026-07-10已完成-/);
   assert.match(section.textContent, /JX-1项目一经理甲发布2026-07-15未完成剩余 3 天/);
 });
 

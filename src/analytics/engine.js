@@ -57,12 +57,12 @@ function summarizeMilestones(rows, range, available = true) {
   const planned = rows.filter(function (row) {
     return row.planEndTime >= month.startDate && row.planEndTime <= month.endDate;
   });
-  const completed = planned.filter(function (row) { return String(row.confirmStatus) === "2"; });
+  const completed = planned.filter(function (row) { return row.completed === true; });
   const overdue = rows.filter(function (row) {
-    return String(row.confirmStatus) !== "2" && row.planEndTime < range.endDate;
+    return row.completed !== true && row.planEndTime < range.endDate;
   });
   const upcoming = rows.filter(function (row) {
-    return String(row.confirmStatus) !== "2" &&
+    return row.completed !== true &&
       row.planEndTime > range.endDate &&
       row.planEndTime <= nearEnd;
   });

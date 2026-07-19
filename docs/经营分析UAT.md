@@ -7,7 +7,7 @@
 | 项目 | 状态 | 证据/说明 |
 |---|---|---|
 | 生产构建 | 已通过 | 2026-07-19 `npm run verify` |
-| Node 单元/集成测试 | 已通过 | 204/204 |
+| Node 单元/集成测试 | 已通过 | 205/205 |
 | 离线 Chromium E2E | 已通过 | 9/9，且无真实 JXPMO 请求 |
 | 真实系统只读 UAT | 待执行 | 当前工作区未提供可复用的已登录浏览器会话 |
 | 3 部门 × 2 周双跑 | 待执行 | 需要部门选择、旧工具基线和业务负责人参与 |
@@ -82,6 +82,7 @@ npm run verify
 | BA-15 | 回款合同与红冲 | 查询健新科技 2026-07 报告，反查订单合同和 2025 红冲计划 | `contractNum` 可命中逗号分隔的项目 `contractNo`；跨项目部门仍按合同关联；同一 `planId` 的正负金额净额为 0 时不显示逾期 |
 | BA-16 | 回款失败与异常 | 制造回款接口失败，并准备非法 `recFlag`/金额 fixture | 失败时卡片显示“未获取”且不调用旧接口；异常行进入诊断但不污染金额、笔数和回款率 |
 | BA-17 | 日报日期字段 | 检查 `taskDetailService/query` 响应，并准备 `realEndTime` 为空的兼容 fixture | 正常记录按 `realEndTime` 归属周期；缺失时依次回退 `submissionTime`、`createTime`；不依赖接口未返回的 `taskDate/workDate/fillDate/costTime` |
+| BA-18 | 里程碑完成状态 | 准备 `confirmStatus=1`、`realEndTime` 有效、`restReason=确认` 且计划日已过的节点 | 状态为已完成，不进入逾期/未来列表，不产生里程碑逾期风险；`finishStatus` 不参与判断 |
 
 ## 6. 双跑范围
 

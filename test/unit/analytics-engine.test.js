@@ -47,8 +47,8 @@ function fixture(overrides = {}) {
       P2: [{ costLevel: 200, planEndTime: "2026-07-09", actualEndTime: "2026-07-10" }]
     },
     milestonesByProject: {
-      P1: [{ planEndTime: "2026-07-05", confirmStatus: "1", nodeName: "上线" }],
-      P2: [{ planEndTime: "2026-07-11", confirmStatus: "2", nodeName: "验收" }]
+      P1: [{ planEndTime: "2026-07-05", completed: false, nodeName: "上线" }],
+      P2: [{ planEndTime: "2026-07-11", completed: true, nodeName: "验收" }]
     },
     invoiceRows: [{
       detailId: "I1",
@@ -132,6 +132,28 @@ test("analytics engine keeps future WBS completion out of report cutoff", functi
   assert.equal(first.risks.some(function (item) {
     return item.type === RISK_TYPES.HIGH_INPUT_ZERO_OUTPUT;
   }), true);
+});
+
+test("analytics engine excludes a late confirmed milestone from overdue risks", function () {
+  const report = createAnalyticsEngine().buildReport(fixture({
+    milestonesByProject: {
+      P1: [{
+        milestoneId: "M1",
+        nodeName: "验收",
+        planEndTime: "2026-07-10",
+        actualEndTime: "2026-07-16",
+        completed: true
+      }],
+      P2: []
+    }
+  }));
+  const project = report.tables.projects.find(function (row) { return row.projectId === "P1"; });
+  assert.equal(report.metrics.milestone.completedCount, 1);
+  assert.equal(report.metrics.milestone.overdueCount, 0);
+  assert.equal(project.overdueMilestoneCount, 0);
+  assert.equal(project.risks.some(function (risk) {
+    return risk.type === RISK_TYPES.MILESTONE_OVERDUE;
+  }), false);
 });
 
 test("analytics engine marks temporary project selection explicitly", function () {

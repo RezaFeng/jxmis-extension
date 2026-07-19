@@ -50,7 +50,19 @@ function report() {
         wbsRows: [{ url: "https://jxmis.example/private" }]
       }],
       activeProjects: [],
-      milestones: { planned: [], overdue: [], upcoming: [] },
+      milestones: {
+        planned: [{
+          milestoneId: "M1",
+          projectNo: "JX-1",
+          projectName: "项目一",
+          projectManagerName: "经理甲",
+          nodeName: "验收",
+          planEndTime: "2026-07-10",
+          completed: true
+        }],
+        overdue: [],
+        upcoming: []
+      },
       invoices: {
         monthRows: [{
           detailId: "D1",
@@ -119,6 +131,8 @@ test("analytics html export is self-contained and strips sensitive detail", func
   assert.match(html, /2026-07-09/);
   assert.match(html, /多重匹配回款：1 笔/);
   assert.match(html, /异常回款：1 笔/);
+  assert.match(html, /验收/);
+  assert.match(html, /已完成/);
   assert.ok(html.indexOf("经营速览") < html.indexOf("实时累计经营概览"));
   assert.ok(html.indexOf("实时累计经营概览") < html.indexOf("本期经营与上期比较"));
   assert.ok(html.indexOf("本期经营与上期比较") < html.indexOf("项目明细"));

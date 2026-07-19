@@ -227,7 +227,29 @@ test("analytics data distinguishes empty WBS and normalizes milestone completion
     fetch: async function (url) {
       const query = new URL(url).searchParams;
       if (query.get("queryName") === "queryLandmark") {
-        return { ok: true, json: async function () { return { rows: [{ detailId: "M1", detailName: "上线", planEndTime: "2026-07-12 00:00:00", realEndTime: "2026-07-11", confirmStatus: 2 }] }; } };
+        return { ok: true, json: async function () { return { rows: [{
+          detailId: "M1",
+          detailName: "上线",
+          planEndTime: "2026-07-12 00:00:00",
+          realEndTime: null,
+          confirmStatus: 2
+        }, {
+          detailId: "M2",
+          detailName: "验收",
+          planEndTime: "2026-07-10 00:00:00",
+          realEndTime: "2026-07-16 00:00:00",
+          restReason: " 确认 ",
+          confirmStatus: 1,
+          finishStatus: "10"
+        }, {
+          detailId: "M3",
+          detailName: "发布",
+          planEndTime: "2026-07-09 00:00:00",
+          realEndTime: "2026-07-17 00:00:00",
+          restReason: "未确认",
+          confirmStatus: 1,
+          finishStatus: "50"
+        }] }; } };
       }
       return {
         ok: true,
@@ -253,9 +275,21 @@ test("analytics data distinguishes empty WBS and normalizes milestone completion
     milestoneId: "M1",
     nodeName: "上线",
     planEndTime: "2026-07-12",
-    actualEndTime: "2026-07-11",
-    confirmStatus: "2"
+    actualEndTime: null,
+    confirmStatus: "2",
+    restReason: null,
+    completed: true
   });
+  assert.deepEqual(milestones.rows[1], {
+    milestoneId: "M2",
+    nodeName: "验收",
+    planEndTime: "2026-07-10",
+    actualEndTime: "2026-07-16",
+    confirmStatus: "1",
+    restReason: "确认",
+    completed: true
+  });
+  assert.equal(milestones.rows[2].completed, false);
 });
 
 test("analytics data identifies redirected HTML sessions", async function () {

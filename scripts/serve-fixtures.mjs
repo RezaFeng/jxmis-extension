@@ -165,7 +165,15 @@ function handleApi(url, request, response) {
       return true;
     }
     sendJson(response, {
-      rows: [{ milestoneId: "M-" + projectId, nodeName: "Fixture Milestone", planEndTime: "2026-07-15", actualEndTime: "", confirmStatus: "1" }],
+      rows: [{
+        milestoneId: "M-" + projectId,
+        nodeName: "Fixture Milestone",
+        planEndTime: "2026-07-10",
+        realEndTime: "2026-07-16",
+        restReason: "确认",
+        confirmStatus: "1",
+        finishStatus: "10"
+      }],
       recordsTotal: 1
     });
     return true;

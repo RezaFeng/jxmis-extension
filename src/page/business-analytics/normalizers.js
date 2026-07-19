@@ -53,6 +53,12 @@ export function normalizeWbsRows(rows) {
 
 export function normalizeMilestoneRows(rows) {
   return (rows || []).map(function (raw) {
+    const actualEndTime = normalizeApiDate(
+      raw.actualEndTime ?? raw.realEndTime,
+      "milestone.actualEndTime"
+    );
+    const confirmStatus = normalizeIdentifier(raw.confirmStatus, "milestone.confirmStatus");
+    const restReason = normalizeIdentifier(raw.restReason, "milestone.restReason");
     return {
       milestoneId: normalizeIdentifier(raw.milestoneId ?? raw.detailId ?? raw.id, "milestone.id"),
       nodeName: normalizeIdentifier(
@@ -61,8 +67,10 @@ export function normalizeMilestoneRows(rows) {
         { required: true }
       ),
       planEndTime: normalizeApiDate(raw.planEndTime, "milestone.planEndTime", { required: true }),
-      actualEndTime: normalizeApiDate(raw.actualEndTime ?? raw.realEndTime, "milestone.actualEndTime"),
-      confirmStatus: normalizeIdentifier(raw.confirmStatus, "milestone.confirmStatus")
+      actualEndTime,
+      confirmStatus,
+      restReason,
+      completed: confirmStatus === "2" || Boolean(actualEndTime && restReason === "确认")
     };
   });
 }
