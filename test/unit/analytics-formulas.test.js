@@ -132,20 +132,41 @@ test("analytics formulas return known zero metrics for an empty WBS result", fun
   });
 });
 
-test("analytics formulas enforce WBS historical cutoff", function () {
+test("analytics formulas prorate WBS budget by overlapping workdays", function () {
   const metrics = calculateWbsMetrics([
-    { costLevel: 10, planEndTime: "2026-07-03", actualEndTime: "2026-07-05" },
-    { costLevel: 20, planEndTime: "2026-07-08", actualEndTime: "2026-07-10" },
-    { costLevel: 30, planEndTime: "2026-07-11", actualEndTime: "2026-07-20" },
-    { costLevel: 40, planEndTime: "2026-08-01", actualEndTime: "2026-08-01" }
-  ], { startDate: "2026-07-06", endDate: "2026-07-12" });
-  assert.equal(metrics.monthPV, 60);
-  assert.equal(metrics.monthEV, 30);
-  assert.equal(metrics.periodPV, 50);
-  assert.equal(metrics.periodEV, 20);
-  assert.equal(metrics.cumulativePV, 60);
-  assert.equal(metrics.cumulativeEV, 30);
-  assert.equal(metrics.totalSPI, 0.5);
+    {
+      totalCost: 10500,
+      planStartTime: "2026-07-13",
+      planEndTime: "2026-07-17",
+      completeSchedule: 100,
+      finishStatus: "50"
+    },
+    {
+      totalCost: 5000,
+      planStartTime: "2026-07-20",
+      planEndTime: "2026-07-24",
+      completeSchedule: null,
+      finishStatus: "20"
+    }
+  ], { startDate: "2026-07-16", endDate: "2026-07-20" });
+  assert.equal(metrics.monthPV, 15500);
+  assert.equal(metrics.monthEV, 10500);
+  assert.equal(metrics.periodPV, 5200);
+  assert.equal(metrics.periodEV, 4200);
+  assert.equal(metrics.periodSPI, 4200 / 5200);
+  assert.equal(metrics.cumulativePV, 11500);
+  assert.equal(metrics.cumulativeEV, 10500);
+  assert.equal(metrics.totalSPI, 10500 / 11500);
+  assert.deepEqual(metrics.diagnostics, {
+    missingCompleteScheduleCount: 1,
+    missingCompleteScheduleRows: [{
+      detailId: null,
+      detailName: null,
+      finishStatus: "20",
+      finishStatusDesc: null
+    }],
+    missingHolidayTableYears: []
+  });
 });
 
 test("analytics formulas calculate interval input without cost fallback", function () {
@@ -154,7 +175,12 @@ test("analytics formulas calculate interval input without cost fallback", functi
     endDate: "2026-07-12",
     dailyRows: [{ realHour: 8, cost: 100 }, { realHour: 4, cost: 50 }],
     previousDailyRows: [{ realHour: 8, cost: 100 }],
-    wbsRows: [{ costLevel: 200, planEndTime: "2026-07-08", actualEndTime: "2026-07-09" }],
+    wbsRows: [{
+      totalCost: 200,
+      planStartTime: "2026-07-08",
+      planEndTime: "2026-07-09",
+      completeSchedule: 100
+    }],
     projects: [{ subcontractAmount: 1000, estiExeuCost: 500 }],
     nextPeriodPlannedHours: 24
   });

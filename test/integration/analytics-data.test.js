@@ -259,7 +259,19 @@ test("analytics data distinguishes empty WBS and normalizes milestone completion
       return {
         ok: true,
         json: async function () {
-          return { rows: [{ detailId: "W0", costLevel: null, planEndTime: "2026-07-12" }] };
+          return {
+            rows: [{
+              detailId: "W0",
+              costLevel: "2100",
+              duration: 5,
+              totalCost: 10500,
+              completeSchedule: 100,
+              finishStatus: "50",
+              finishStatusDesc: "已完成",
+              planStartTime: "2026-07-13 00:00:00",
+              planEndTime: "2026-07-17 00:00:00"
+            }]
+          };
         }
       };
     }
@@ -269,8 +281,14 @@ test("analytics data distinguishes empty WBS and normalizes milestone completion
     rows: [{
       detailId: "W0",
       detailName: null,
-      costLevel: 0,
-      planEndTime: "2026-07-12",
+      costLevel: 2100,
+      duration: 5,
+      totalCost: 10500,
+      completeSchedule: 100,
+      finishStatus: "50",
+      finishStatusDesc: "已完成",
+      planStartTime: "2026-07-13",
+      planEndTime: "2026-07-17",
       actualEndTime: null
     }]
   });

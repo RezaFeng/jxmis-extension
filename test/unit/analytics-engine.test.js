@@ -43,8 +43,20 @@ function fixture(overrides = {}) {
       P2: [{ realHour: 8, cost: 100 }]
     },
     wbsByProject: {
-      P1: [{ costLevel: 100, planEndTime: "2026-07-08", actualEndTime: "2026-07-20" }],
-      P2: [{ costLevel: 200, planEndTime: "2026-07-09", actualEndTime: "2026-07-10" }]
+      P1: [{
+        totalCost: 100,
+        planStartTime: "2026-07-08",
+        planEndTime: "2026-07-08",
+        completeSchedule: 0,
+        finishStatus: "20"
+      }],
+      P2: [{
+        totalCost: 200,
+        planStartTime: "2026-07-09",
+        planEndTime: "2026-07-09",
+        completeSchedule: 100,
+        finishStatus: "50"
+      }]
     },
     milestonesByProject: {
       P1: [{ planEndTime: "2026-07-05", completed: false, nodeName: "上线" }],

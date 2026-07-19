@@ -149,7 +149,16 @@ test("analytics collector retries only failed descriptors", async function () {
   data.fetchWbs = async function (id, range) {
     wbsCalls += 1;
     assert.deepEqual(range, { startDate: "2026-07-06", endDate: "2026-07-12" });
-    return { status: "success", rows: [{ projectId: id, costLevel: 1 }] };
+    return {
+      status: "success",
+      rows: [{
+        projectId: id,
+        totalCost: 1,
+        planStartTime: "2026-07-06",
+        planEndTime: "2026-07-06",
+        completeSchedule: 100
+      }]
+    };
   };
   const retried = await collector.retryFailed(
     Object.assign({}, request(), { requestId: "R2" }),

@@ -45,6 +45,12 @@ export function normalizeWbsRows(rows) {
       detailId: normalizeIdentifier(raw.detailId ?? raw.id, "wbs.detailId"),
       detailName: normalizeIdentifier(raw.detailName ?? raw.taskName, "wbs.detailName"),
       costLevel: normalizeFiniteNumber(raw.costLevel, "wbs.costLevel", { blankAsZero: true }),
+      duration: normalizeFiniteNumber(raw.duration, "wbs.duration", { blankAsZero: true }),
+      totalCost: normalizeFiniteNumber(raw.totalCost, "wbs.totalCost", { blankAsZero: true }),
+      completeSchedule: normalizeFiniteNumber(raw.completeSchedule, "wbs.completeSchedule"),
+      finishStatus: normalizeIdentifier(raw.finishStatus, "wbs.finishStatus"),
+      finishStatusDesc: normalizeIdentifier(raw.finishStatusDesc, "wbs.finishStatusDesc"),
+      planStartTime: normalizeApiDate(raw.planStartTime, "wbs.planStartTime", { required: true }),
       planEndTime: normalizeApiDate(raw.planEndTime, "wbs.planEndTime", { required: true }),
       actualEndTime: normalizeApiDate(raw.actualEndTime ?? raw.realEndTime, "wbs.actualEndTime")
     };

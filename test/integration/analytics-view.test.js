@@ -99,7 +99,15 @@ function analyticsInput(overrides = {}) {
     }],
     dailyByProject: { P1: [{ realHour: 8, cost: 1000 }] },
     previousDailyByProject: { P1: [{ realHour: 4, cost: 500 }] },
-    wbsByProject: { P1: [{ costLevel: 10000, planEndTime: "2026-07-08", actualEndTime: "2026-07-09" }] },
+    wbsByProject: {
+      P1: [{
+        totalCost: 10000,
+        planStartTime: "2026-07-08",
+        planEndTime: "2026-07-08",
+        completeSchedule: 100,
+        finishStatus: "50"
+      }]
+    },
     milestonesByProject: { P1: [] },
     invoiceRows: [],
     invoicesByProject: { P1: [] },

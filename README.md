@@ -78,6 +78,7 @@ src/
 - 项目范围按组织树部门 ID 和本地配置过滤，不维护项目编码白名单。
 - 日报查询使用 `/rest/project/taskDetailService/query` 的 `realEndTime` 作为业务日期；仅在该字段缺失时兼容 `submissionTime`、`createTime`。`taskDate` 是扩展内部归一化字段，不是该接口的原始返回字段。
 - WBS 查询使用 `/rest/project/ProjectPlanDetailService/query?queryName=queryVer`，继续以 `max1/planId1 = projectId` 定位项目，并传入 `startTime/endTime` 限制到当前报告周期；项目主数据仍以 `/rest/project/ProjectInfoService/query` 为准，不切换到项目计划列表接口。
+- WBS 指标使用 `totalCost` 作为任务预算、`completeSchedule` 作为完成进度；`costLevel` 只是人员单价，不参与 PV/EV/SPI。跨统计区间的 WBS 按中国节假日工作日交集分摊预算。
 - 日报 `cost` 是投入成本来源，不使用固定单价兜底。
 - 软件与服务合同金额优先使用 `subcontractAmount`；主字段为空时以同单位的 `tqSoftAmount` 兜底，两者均为空时为 0；不下载基线或回款 Excel。
 - 接口成功返回的空业务数值按 0 计算；已知分母为 0 的比率强制为 0；网络、会话、HTTP、分页或 schema 技术失败仍显示“未获取”。

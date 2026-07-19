@@ -1,4 +1,9 @@
-import { getEndMonthRange, getRangeLength } from "./date-range.js";
+import {
+  countChinaWorkdays,
+  getEndMonthRange,
+  getRangeLength,
+  intersectDateRanges
+} from "./date-range.js";
 import { AnalyticsSchemaError, normalizeDateRange } from "./domain.js";
 
 function isKnown(value) {
@@ -76,44 +81,140 @@ export function calculateCumulativeMetrics(projects) {
   };
 }
 
-function dateInRange(value, range) {
-  return typeof value === "string" && value >= range.startDate && value <= range.endDate;
+function emptyWbsMetrics() {
+  return {
+    applicable: true,
+    monthPV: 0,
+    monthEV: 0,
+    monthSPI: 0,
+    periodPV: 0,
+    periodEV: 0,
+    periodSPI: 0,
+    cumulativePV: 0,
+    cumulativeEV: 0,
+    totalSPI: 0
+  };
+}
+
+function createWbsDiagnostics() {
+  return {
+    missingCompleteScheduleCount: 0,
+    missingCompleteScheduleRows: [],
+    missingHolidayTableYears: []
+  };
+}
+
+function addMissingHolidayYears(diagnostics, years) {
+  if (!Array.isArray(years) || years.length === 0) return;
+  const known = new Set(diagnostics.missingHolidayTableYears);
+  years.forEach(function (year) {
+    known.add(String(year));
+  });
+  diagnostics.missingHolidayTableYears = [...known].sort();
+}
+
+function hasWbsDiagnostics(diagnostics) {
+  return diagnostics.missingCompleteScheduleCount > 0 ||
+    diagnostics.missingHolidayTableYears.length > 0;
+}
+
+function isCompletedWbs(row) {
+  return row.finishStatus === "50" || row.finishStatusDesc === "已完成";
+}
+
+function isUnstartedWbs(row) {
+  return row.finishStatus === "10" || row.finishStatusDesc === "未开始";
+}
+
+function resolveCompleteSchedule(row, diagnostics) {
+  if (isKnown(row.completeSchedule)) {
+    return row.completeSchedule;
+  }
+  if (isCompletedWbs(row)) {
+    return 100;
+  }
+  if (isUnstartedWbs(row)) {
+    return 0;
+  }
+  diagnostics.missingCompleteScheduleCount += 1;
+  diagnostics.missingCompleteScheduleRows.push({
+    detailId: row.detailId || null,
+    detailName: row.detailName || null,
+    finishStatus: row.finishStatus || null,
+    finishStatusDesc: row.finishStatusDesc || null
+  });
+  return 0;
+}
+
+function wbsPlanRange(row) {
+  if (
+    typeof row.planStartTime !== "string" ||
+    typeof row.planEndTime !== "string" ||
+    row.planStartTime > row.planEndTime
+  ) {
+    return null;
+  }
+  return { startDate: row.planStartTime, endDate: row.planEndTime };
+}
+
+function allocateWbsPv(row, targetRange, diagnostics) {
+  const planRange = wbsPlanRange(row);
+  if (!planRange) return 0;
+  const overlap = intersectDateRanges(planRange, targetRange);
+  if (!overlap) return 0;
+  const totalWorkdays = countChinaWorkdays(planRange);
+  const overlapWorkdays = countChinaWorkdays(overlap);
+  addMissingHolidayYears(diagnostics, totalWorkdays.missingHolidayTableYears);
+  addMissingHolidayYears(diagnostics, overlapWorkdays.missingHolidayTableYears);
+  if (totalWorkdays.count <= 0 || overlapWorkdays.count <= 0) {
+    return 0;
+  }
+  return row.totalCost * overlapWorkdays.count / totalWorkdays.count;
+}
+
+function sumWbs(rows, targetRange, diagnostics, scheduleByRow) {
+  return rows.reduce(function (sum, row) {
+    return sum + allocateWbsPv(row, targetRange, diagnostics) * scheduleByRow.get(row) / 100;
+  }, 0);
+}
+
+function sumWbsPv(rows, targetRange, diagnostics) {
+  return rows.reduce(function (sum, row) {
+    return sum + allocateWbsPv(row, targetRange, diagnostics);
+  }, 0);
+}
+
+function getCumulativeWbsRange(rows, endDate) {
+  const startDate = rows.reduce(function (earliest, row) {
+    const planRange = wbsPlanRange(row);
+    if (!planRange) return earliest;
+    return earliest === null || planRange.startDate < earliest ? planRange.startDate : earliest;
+  }, null);
+  return startDate === null || startDate > endDate ? null : { startDate, endDate };
 }
 
 export function calculateWbsMetrics(wbsRows, range) {
   const normalized = normalizeDateRange(range);
   const month = getEndMonthRange(normalized);
-  const applicable = wbsRows.filter(function (row) { return isKnown(row.costLevel); });
+  const applicable = wbsRows.filter(function (row) {
+    return isKnown(row.totalCost) && wbsPlanRange(row);
+  });
   if (applicable.length === 0) {
-    return {
-      applicable: true,
-      monthPV: 0,
-      monthEV: 0,
-      monthSPI: 0,
-      periodPV: 0,
-      periodEV: 0,
-      periodSPI: 0,
-      cumulativePV: 0,
-      cumulativeEV: 0,
-      totalSPI: 0
-    };
+    return emptyWbsMetrics();
   }
-  function total(predicate) {
-    return applicable.filter(predicate).reduce(function (sum, row) { return sum + row.costLevel; }, 0);
-  }
-  const monthPV = total(function (row) { return dateInRange(row.planEndTime, month); });
-  const monthEV = total(function (row) {
-    return dateInRange(row.actualEndTime, month) && row.actualEndTime <= normalized.endDate;
+  const diagnostics = createWbsDiagnostics();
+  const scheduleByRow = new Map();
+  applicable.forEach(function (row) {
+    scheduleByRow.set(row, resolveCompleteSchedule(row, diagnostics));
   });
-  const periodPV = total(function (row) { return dateInRange(row.planEndTime, normalized); });
-  const periodEV = total(function (row) { return dateInRange(row.actualEndTime, normalized); });
-  const cumulativePV = total(function (row) {
-    return typeof row.planEndTime === "string" && row.planEndTime <= normalized.endDate;
-  });
-  const cumulativeEV = total(function (row) {
-    return typeof row.actualEndTime === "string" && row.actualEndTime <= normalized.endDate;
-  });
-  return {
+  const cumulativeRange = getCumulativeWbsRange(applicable, normalized.endDate);
+  const monthPV = sumWbsPv(applicable, month, diagnostics);
+  const monthEV = sumWbs(applicable, month, diagnostics, scheduleByRow);
+  const periodPV = sumWbsPv(applicable, normalized, diagnostics);
+  const periodEV = sumWbs(applicable, normalized, diagnostics, scheduleByRow);
+  const cumulativePV = cumulativeRange ? sumWbsPv(applicable, cumulativeRange, diagnostics) : 0;
+  const cumulativeEV = cumulativeRange ? sumWbs(applicable, cumulativeRange, diagnostics, scheduleByRow) : 0;
+  const metrics = {
     applicable: true,
     monthPV,
     monthEV,
@@ -125,6 +226,10 @@ export function calculateWbsMetrics(wbsRows, range) {
     cumulativeEV,
     totalSPI: safeRatio(cumulativeEV, cumulativePV)
   };
+  if (hasWbsDiagnostics(diagnostics)) {
+    metrics.diagnostics = diagnostics;
+  }
+  return metrics;
 }
 
 export function calculateInputMetrics(input) {

@@ -182,9 +182,14 @@ test("analytics config normalizes successful blank business values as zero", fun
 
   const wbs = normalizeWbsRows([{
     id: "W1",
+    totalCost: undefined,
+    completeSchedule: undefined,
+    planStartTime: "2026-07-01",
     costLevel: undefined,
     planEndTime: "2026-07-02"
   }]);
   assert.equal(wbs.length, 1);
   assert.equal(wbs[0].costLevel, 0);
+  assert.equal(wbs[0].totalCost, 0);
+  assert.equal(wbs[0].completeSchedule, null);
 });
