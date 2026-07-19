@@ -250,11 +250,25 @@ export function createJxpmoAnalyticsData(adapters) {
     return result(rows.map(normalizeDailyRow));
   }
 
-  async function fetchWbs(projectId, signal) {
+  async function fetchWbs(projectId, rangeOrSignal, signal) {
     const id = String(projectId);
+    let range = rangeOrSignal;
+    if (
+      rangeOrSignal &&
+      typeof rangeOrSignal.aborted === "boolean" &&
+      typeof rangeOrSignal.addEventListener === "function"
+    ) {
+      signal = rangeOrSignal;
+      range = null;
+    }
+    const params = { queryName: "queryVer", max1: id, planId1: id };
+    const startTime = range && (range.startTime || range.startDate);
+    const endTime = range && (range.endTime || range.endDate);
+    if (startTime) params.startTime = String(startTime);
+    if (endTime) params.endTime = String(endTime);
     const rows = await fetchPagedEndpoint(
       "/rest/project/ProjectPlanDetailService/query",
-      { queryName: "queryVer", max1: id, planId1: id },
+      params,
       "fetch analytics WBS " + id,
       signal
     );

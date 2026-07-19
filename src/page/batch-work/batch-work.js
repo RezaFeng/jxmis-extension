@@ -787,8 +787,8 @@ export function createBatchWorkAutomation(adapters) {
     return [];
   }
 
-  async function fetchProjectPlanDetails(context) {
-    const params = new URLSearchParams({
+  async function fetchProjectPlanDetails(context, dateRange) {
+    const query = {
       queryName: "queryVer",
       filterQuery: "true",
       queryType: "page",
@@ -799,11 +799,15 @@ export function createBatchWorkAutomation(adapters) {
       start: "0",
       length: "-1",
       rows: "1073741824"
-    });
+    };
+    if (dateRange && dateRange.startTime) query.startTime = String(dateRange.startTime);
+    if (dateRange && dateRange.endTime) query.endTime = String(dateRange.endTime);
+    const params = new URLSearchParams(query);
     const url = getBaseUrl() + "/rest/project/ProjectPlanDetailService/query?" + params.toString();
     const startedAt = performance.now();
     logWbsStep("request ProjectPlanDetailService/query", {
       projectId: context.projectId,
+      dateRange: dateRange || null,
       url: url
     });
     const data = await fetchJson(
@@ -1355,7 +1359,10 @@ export function createBatchWorkAutomation(adapters) {
       MESSAGE_TYPES.WORK_RUNNING,
       "查询下周 WBS 计划 " + nextWeek.startText + " 至 " + nextWeek.endText
     );
-    const wbsRows = await fetchProjectPlanDetails(context);
+    const wbsRows = await fetchProjectPlanDetails(context, {
+      startTime: nextWeek.startText,
+      endTime: nextWeek.endText
+    });
     const existingRows = await fetchExistingNextExecutions(context.wkId);
     logWbsStep("source rows loaded", {
       wbsRows: wbsRows.length,

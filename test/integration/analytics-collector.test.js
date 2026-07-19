@@ -18,6 +18,7 @@ function createData(options = {}) {
   let active = 0;
   let maxActive = 0;
   const projectCalls = [];
+  const wbsRanges = [];
   const receivableCalls = [];
   const weeklyRanges = [];
   const dailyCalls = [];
@@ -41,6 +42,7 @@ function createData(options = {}) {
   return {
     maxActive: function () { return maxActive; },
     projectCalls: function () { return projectCalls; },
+    wbsRanges: function () { return wbsRanges; },
     receivableCalls: function () { return receivableCalls; },
     weeklyRanges: function () { return weeklyRanges; },
     dailyCalls: function () { return dailyCalls; },
@@ -73,7 +75,10 @@ function createData(options = {}) {
         diagnostics: options.receivableDiagnostics || {}
       };
     },
-    fetchWbs: function (id) { return perProject("wbs", id); },
+    fetchWbs: function (id, range) {
+      wbsRanges.push({ projectId: id, range });
+      return perProject("wbs", id);
+    },
     fetchMilestones: function (id) { return perProject("milestones", id); },
     fetchWeeklyReports: function (value, range) {
       weeklyRanges.push(range);
@@ -141,8 +146,9 @@ test("analytics collector retries only failed descriptors", async function () {
   const collector = createAnalyticsCollector({ data, sleep: async function () {} });
   const partial = await collector.collect(request());
   let wbsCalls = 0;
-  data.fetchWbs = async function (id) {
+  data.fetchWbs = async function (id, range) {
     wbsCalls += 1;
+    assert.deepEqual(range, { startDate: "2026-07-06", endDate: "2026-07-12" });
     return { status: "success", rows: [{ projectId: id, costLevel: 1 }] };
   };
   const retried = await collector.retryFailed(
@@ -192,6 +198,10 @@ test("analytics collector narrows the formal scope from current input and diagno
   assert.deepEqual(result.formalScope.enteredProjectIds, ["P0"]);
   assert.deepEqual(result.formalScope.exitedProjectIds, ["P1"]);
   assert.ok(data.projectCalls().every(function (value) { return value.endsWith(":P0"); }));
+  assert.deepEqual(data.wbsRanges(), [{
+    projectId: "P0",
+    range: { startDate: "2026-07-06", endDate: "2026-07-12" }
+  }]);
   assert.equal(data.receivableCalls().length, 1);
   assert.deepEqual(data.receivableCalls()[0].projectIds, ["P0", "P1", "P2"]);
   assert.deepEqual(data.weeklyRanges()[0], {

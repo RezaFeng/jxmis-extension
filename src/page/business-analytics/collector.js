@@ -276,6 +276,7 @@ export function createAnalyticsCollector(adapters) {
         });
       }
       const previous = getPreviousDateRange(request);
+      const wbsRange = { startDate: request.startDate, endDate: request.endDate };
       const weeklyRange = { startDate: previous.startDate, endDate: request.endDate };
       progress("sharedSources", { totalProjects: candidateProjects.length });
       const currentKey = rangeKey(request.startDate, request.endDate);
@@ -357,7 +358,7 @@ export function createAnalyticsCollector(adapters) {
           nextIndex += 1;
           const projectId = String(project.projectId);
           const operations = {
-            wbs: function () { return data.fetchWbs(projectId, signal); },
+            wbs: function () { return data.fetchWbs(projectId, wbsRange, signal); },
             milestones: function () { return data.fetchMilestones(projectId, signal); },
             weeklyReports: function () { return data.fetchWeeklyReports(project, weeklyRange, signal); }
           };
@@ -423,6 +424,7 @@ export function createAnalyticsCollector(adapters) {
       ? previous.failedRequests
       : [];
     const previousRange = getPreviousDateRange(request);
+    const wbsRange = { startDate: request.startDate, endDate: request.endDate };
     const weeklyRange = { startDate: previousRange.startDate, endDate: request.endDate };
     const remaining = [];
     function replaceStatus(descriptor, status) {
@@ -459,7 +461,7 @@ export function createAnalyticsCollector(adapters) {
             );
           };
         } else if (descriptor.source === "wbs" && projectId) {
-          operation = function () { return data.fetchWbs(projectId, signal); };
+          operation = function () { return data.fetchWbs(projectId, wbsRange, signal); };
         } else if (descriptor.source === "milestones" && projectId) {
           operation = function () { return data.fetchMilestones(projectId, signal); };
         } else if (descriptor.source === "weeklyReports" && project) {

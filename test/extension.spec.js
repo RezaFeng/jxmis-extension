@@ -204,6 +204,14 @@ async function analyticsRequestCount(page, pathname) {
   }, pathname);
 }
 
+async function analyticsRequests(page, pathname) {
+  return page.evaluate(function (expectedPathname) {
+    return (window.__fixtureAnalyticsRequests || []).filter(function (request) {
+      return request.pathname === expectedPathname;
+    });
+  }, pathname);
+}
+
 test("business analytics fixture uses live formal scope, comparison and export", async function () {
   const { page, host } = await openAnalytics();
   await expectOnlyPageBundle(page, "cw-business-analytics-page-script", "page-business-analytics.js");
@@ -216,6 +224,13 @@ test("business analytics fixture uses live formal scope, comparison and export",
   expect(await analyticsRequestCount(page, "/jxpmo/rest/project/ProjectPlanDetailService/query"))
     .toBe(projectDetailsBefore);
   await queryDepartment(host, "D1", "Fixture Project One");
+  const wbsRequests = (await analyticsRequests(page, "/jxpmo/rest/project/ProjectPlanDetailService/query"))
+    .filter(function (request) { return request.params.queryName === "queryVer"; });
+  expect(wbsRequests.length).toBeGreaterThan(0);
+  expect(wbsRequests.every(function (request) {
+    return request.params.startTime === "2026-07-06" &&
+      request.params.endTime === "2026-07-12";
+  })).toBe(true);
   await expect(host.locator('[data-role="report-status"]')).toContainText("正式范围 1/2");
   await expect(host.getByText("Fixture Project Three", { exact: true })).toHaveCount(0);
   await expect(host.getByRole("heading", { name: "本期经营与上期比较" })).toBeVisible();

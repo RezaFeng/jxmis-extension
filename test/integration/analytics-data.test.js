@@ -252,6 +252,10 @@ test("analytics data distinguishes empty WBS and normalizes milestone completion
           finishStatus: "50"
         }] }; } };
       }
+      assert.equal(query.get("max1"), "P1");
+      assert.equal(query.get("planId1"), "P1");
+      assert.equal(query.get("startTime"), "2026-07-06");
+      assert.equal(query.get("endTime"), "2026-07-12");
       return {
         ok: true,
         json: async function () {
@@ -260,7 +264,7 @@ test("analytics data distinguishes empty WBS and normalizes milestone completion
       };
     }
   });
-  assert.deepEqual(await data.fetchWbs("P1"), {
+  assert.deepEqual(await data.fetchWbs("P1", { startDate: "2026-07-06", endDate: "2026-07-12" }), {
     status: "success",
     rows: [{
       detailId: "W0",
